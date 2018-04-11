@@ -7,7 +7,7 @@ SET( CMAKE_CXX_COMPILER CC )
 
 FILE ( GLOB SRC *.cc )
 
-set ( GRID_VERSION "master")
+set ( GRID_VERSION "develop")
 
 set ( GRID_DIR "/global/homes/j/jiquntu/grid-build" )
 

@@ -186,50 +186,33 @@ void expandLatticeGaugeField(const Lattice<vobj>& in, Lattice<vobj>& out){
 		assert(in._grid->_ldimensions[d]+4 == out._grid->_ldimensions[d]);
 	}
 
-	parallel_for(int index = 0; index < out._grid->lSites(); index++){
-		std::vector<int> lcoor_out(4), lcoor_in(4), gcoor_out(4), gcoor_in(4);
+	for(int index = 0; index < out._grid->lSites(); index++){
+		std::vector<int> lcoor_out(4), lcoor_in(4), gcoor_in(4);
 		out._grid->LocalIndexToLocalCoor(index, lcoor_out);
 	
-		lcoor_in[0] = lcoor_out[0]; // s: Ls
-		lcoor_in[1] = lcoor_out[1]-1; // x is the _checker_dim
-		for(int d = 2; d < 5; d++){
+		for(int d = 0; d < 4; d++){
 			lcoor_in[d] = lcoor_out[d]-2;
 		}
-		
-		for(int cb = 0; cb < 2; cb++){
-		
-		for(int d = 0; d < 5; d++){ // Ls is the 0th index here.
-			full_lcoor_out[d] = lcoor_out[d];
-			full_lcoor_in[d] = lcoor_in[d];
-		}
-	
-		full_lcoor_out[1] = lcoor_out[1]*2+cb;
-		full_lcoor_in[1] = lcoor_in[1]*2+cb;
 
-		if(out.checkerboard != gbout->CheckerBoard(full_lcoor_out)) continue;
-		
-
-		if( lcoor_in[1]>=0 and lcoor_in[1]<gbin->_ldimensions[1] and
-			lcoor_in[2]>=0 and lcoor_in[2]<gbin->_ldimensions[2] and
-			lcoor_in[3]>=0 and lcoor_in[3]<gbin->_ldimensions[3] and
-			lcoor_in[4]>=0 and lcoor_in[4]<gbin->_ldimensions[4]){
-		
+		if( lcoor_in[1]>=0 and lcoor_in[1]<gbin->_ldimensions[0] and
+			lcoor_in[2]>=0 and lcoor_in[2]<gbin->_ldimensions[1] and
+			lcoor_in[3]>=0 and lcoor_in[3]<gbin->_ldimensions[2] and
+			lcoor_in[0]>=0 and lcoor_in[0]<gbin->_ldimensions[3]){
+			// local gauge links
 			sobj s;
-			peekLocalSite(s, in, full_lcoor_in);
-//			peek_local_site(s, in, lcoor_in);
-			pokeLocalSite(s, out, full_lcoor_out);
-//			poke_local_site(s, out, lcoor_out);
-//			copy_local_site(in, out, lcoor_in, lcoor_out);			
-//			copy_count++;
+			peekLocalSite(s, in, lcoor_in);
+			pokeLocalSite(s, out, lcoor_out);
 		}else{
-			sobj s; memset(&s, 0, sizeof(sobj));
-			pokeLocalSite(s, out, full_lcoor_out);
-//			poke_local_site(s, out, lcoor_out);
-//			set_local_site(out, lcoor_out, 0);
-//			set_count++;
+			// off-node gauge links
+			in._grid->ProcessorCoorLocalCoorToGlobalCoor(in._grid->_processor_coor, lcoor_in, gcoor_in);
+			for(int mu = 0; mu < 4; mu++){
+				gcoor_in[mu] = (gcoor_in[mu]+in._grid->_gdimensions[mu])%in._grid->_gdimensions[mu];
+			}
+			sobj s; // memset(&s, 0, sizeof(sobj));
+			peekSite(s, in, gcoor_in);
+			pokeLocalSite(s, out, lcoor_out);
 		}
 
-		}
 	}
 
 }
@@ -302,7 +285,16 @@ int main(int argc, char** argv) {
 	
 	LatticeFermion src_o_check(FrbGrid);
 	shrinkLatticeFermion(psi_o, src_o_check);
+	std::cout << "Fermion expanded." << std::endl;
 	std::cout << GridLogMessage << norm2(src_o) << " \t " << norm2(psi_o) << " \t " << norm2(src_o_check) << std::endl;
+
+	LatticeGaugeField expandedUmu(ExpandedUGrid);
+	expandLatticeGaugeField(Umu, expandedUmu);
+	std::cout << "Gauge field expanded." << std::endl;
+	std::cout << GridLogMessage << WilsonLoops<PeriodicGimplR>::avgPlaquette(Umu) << " \t " << WilsonLoops<PeriodicGimplR>::avgPlaquette(expandedUmu) << std::endl;
+
+//	MobiusFermionR expandedDMobius(expandedUmu, *ExpandedFGrid, *ExpandedFrbGrid, *ExpandedUGrid, *ExpandedUrbGrid, mass, M5, 22./12., 10./12.);
+		
 
 //	LatticeFermion src_o_dup(FrbGrid);
 //	localConvert(src_o, src_o_dup);
