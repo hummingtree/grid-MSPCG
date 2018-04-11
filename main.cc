@@ -1,6 +1,8 @@
 #include <Grid/Grid.h>
 #include <cassert>
 
+#include <qlat/qlat.h>
+
 using namespace std;
 using namespace Grid;
 using namespace Grid::QCD;
@@ -57,6 +59,9 @@ void set_local_site(Lattice<vobj>& to, std::vector<int>& to_site, int ch){
 template<class sc>
 void expandLatticeFermion(const Lattice<sc>& in, Lattice<sc>& out){
 	
+	GridStopWatch watch;
+	watch.Start();
+
 	// Simply expand and then copy/merge.
 	// Set the Boundary sites to zero.
 	typedef typename sc::scalar_object sobj;
@@ -121,7 +126,9 @@ void expandLatticeFermion(const Lattice<sc>& in, Lattice<sc>& out){
 		}
 	}
 //	std::cout << GridLogMessage << copy_count << "\tset:\t " << set_count << std::endl;
+	watch.Stop();
 
+	std::cout << GridLogMessage << "Total fermion expansion time : " << watch.Elapsed() << std::endl;
 }
 
 template<class vobj>
@@ -217,6 +224,63 @@ void expandLatticeGaugeField(const Lattice<vobj>& in, Lattice<vobj>& out){
 
 }
 
+template<class vobj>
+void expand_lattice_gauge_field_qlat(const Lattice<vobj>& in, Lattice<vobj>& out){
+	
+	// Simply expand and then copy/merge.
+	typedef typename vobj::scalar_object sobj;
+	
+	GridBase* gbin = in._grid;
+	GridBase* gbout = out._grid;
+	assert(in._grid->_ndimension == out._grid->_ndimension);
+	assert(in._grid->_ndimension == 4);
+	for(int d = 0; d < 4; d++){ // Ls is the 0th index here.
+		assert(in._grid->_ldimensions[d]+4 == out._grid->_ldimensions[d]);
+	}
+
+	for(int index = 0; index < out._grid->lSites(); index++){
+		std::vector<int> lcoor_out(4), lcoor_in(4), gcoor_in(4);
+		out._grid->LocalIndexToLocalCoor(index, lcoor_out);
+	
+		for(int d = 0; d < 4; d++){
+			lcoor_in[d] = lcoor_out[d]-2;
+		}
+
+		if( lcoor_in[1]>=0 and lcoor_in[1]<gbin->_ldimensions[0] and
+			lcoor_in[2]>=0 and lcoor_in[2]<gbin->_ldimensions[1] and
+			lcoor_in[3]>=0 and lcoor_in[3]<gbin->_ldimensions[2] and
+			lcoor_in[0]>=0 and lcoor_in[0]<gbin->_ldimensions[3]){
+			// local gauge links
+			sobj s;
+			peekLocalSite(s, in, lcoor_in);
+			pokeLocalSite(s, out, lcoor_out);
+		}else{
+			// off-node gauge links
+			sobj s; memset(&s, 1, sizeof(sobj));
+			pokeLocalSite(s, out, lcoor_out);
+		}
+
+	}
+	
+	std::vector<sobj> out_lex(out._grid->lSites());
+  	unvectorizeToLexOrdArray(out_lex, out);
+
+	qlat::Coordinate global_size(in._grid->_gdimensions[0], in._grid->_gdimensions[1], in._grid->_gdimensions[2], in._grid->_gdimensions[3]);
+	qlat::Geometry geo; geo.init(global_size, 1); // packing gauge links in four directions together, therefore multiplicity=1
+
+	qlat::Coordinate expansion(2, 2, 2, 2);
+	geo.resize(expansion, expansion);
+
+	qlat::Field<sobj> f; f.init(geo);
+	assert(f.field.size()*1 == out._grid->lSites()); // 1 for multiplicity
+	memcpy(f.field.data(), out_lex.data(), f.field.size()*sizeof(sobj));
+	// DO comm.
+	refresh_expanded(f);
+	
+	memcpy(out_lex.data(), f.field.data(), f.field.size()*sizeof(sobj));
+	vectorizeFromLexOrdArray(out_lex, out);
+
+}
 int main(int argc, char** argv) {
 	Grid_init(&argc, &argv);
 
@@ -231,6 +295,13 @@ int main(int argc, char** argv) {
 
 	FrbGrid->show_decomposition();
 
+	qlat::Coordinate node_coor(UGrid->ThisProcessorCoor()[0], UGrid->ThisProcessorCoor()[1], UGrid->ThisProcessorCoor()[2], UGrid->ThisProcessorCoor()[3]);
+	qlat::Coordinate node_size(GridDefaultMpi()[0], GridDefaultMpi()[1], GridDefaultMpi()[2], GridDefaultMpi()[3]);
+	qlat::begin(qlat::index_from_coordinate(node_coor, node_size), node_size);
+	printf("Node #%03d(grid): %02dx%02dx%02dx%02d ; #%03d(qlat): %02dx%02dx%02dx%02d\n", UGrid->ThisRank(), 
+				UGrid->ThisProcessorCoor()[0], UGrid->ThisProcessorCoor()[1], UGrid->ThisProcessorCoor()[2], UGrid->ThisProcessorCoor()[3], 
+				qlat::get_id_node(), qlat::get_coor_node()[0], qlat::get_coor_node()[1], qlat::get_coor_node()[2], qlat::get_coor_node()[3]);
+	
 	std::vector<int> seeds4({1, 2, 3, 4});
 	std::vector<int> seeds5({5, 6, 7, 8});
 	GridParallelRNG RNG5(FGrid);
@@ -289,12 +360,11 @@ int main(int argc, char** argv) {
 	std::cout << GridLogMessage << norm2(src_o) << " \t " << norm2(psi_o) << " \t " << norm2(src_o_check) << std::endl;
 
 	LatticeGaugeField expandedUmu(ExpandedUGrid);
-	expandLatticeGaugeField(Umu, expandedUmu);
+	expand_lattice_gauge_field_qlat(Umu, expandedUmu);
 	std::cout << "Gauge field expanded." << std::endl;
 	std::cout << GridLogMessage << WilsonLoops<PeriodicGimplR>::avgPlaquette(Umu) << " \t " << WilsonLoops<PeriodicGimplR>::avgPlaquette(expandedUmu) << std::endl;
 
-//	MobiusFermionR expandedDMobius(expandedUmu, *ExpandedFGrid, *ExpandedFrbGrid, *ExpandedUGrid, *ExpandedUrbGrid, mass, M5, 22./12., 10./12.);
-		
+	MobiusFermionR expandedDMobius(expandedUmu, *ExpandedFGrid, *ExpandedFrbGrid, *ExpandedUGrid, *ExpandedUrbGrid, mass, M5, 22./12., 10./12.);
 
 //	LatticeFermion src_o_dup(FrbGrid);
 //	localConvert(src_o, src_o_dup);
