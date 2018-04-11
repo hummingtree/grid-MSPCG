@@ -365,7 +365,6 @@ int main(int argc, char** argv) {
 	std::cout << GridLogMessage << WilsonLoops<PeriodicGimplR>::avgPlaquette(Umu) << " \t " << WilsonLoops<PeriodicGimplR>::avgPlaquette(expandedUmu) << std::endl;
 
 	MobiusFermionR expandedDMobius(expandedUmu, *ExpandedFGrid, *ExpandedFrbGrid, *ExpandedUGrid, *ExpandedUrbGrid, mass, M5, 22./12., 10./12.);
-
 //	LatticeFermion src_o_dup(FrbGrid);
 //	localConvert(src_o, src_o_dup);
 //	std::cout << GridLogMessage << norm2(src_o) << " \t " << norm2(src_o_dup) << std::endl;
@@ -373,11 +372,34 @@ int main(int argc, char** argv) {
 	GridStopWatch CGTimer;
 
 	SchurDiagMooeeOperator<MobiusFermionR, LatticeFermion> HermOpEO(DMobius);
+	SchurDiagMooeeOperator<MobiusFermionR, LatticeFermion> expandedHermOpEO(expandedDMobius);
 	ConjugateGradient<LatticeFermion> CG(1.0e-10, 30000, 0);// switch off the assert
 
 	LatticeFermion Mdag_src_o(FrbGrid);
 	HermOpEO.AdjOp(src_o, Mdag_src_o);
 
+	LatticeFermion x(FrbGrid);
+	pickCheckerboard(Odd, x, src);
+	LatticeFermion y(FrbGrid);
+	LatticeFermion ydd(FrbGrid);
+	if(UGrid->ThisRank() != 0) x = zero;
+
+	LatticeFermion xd(ExpandedFrbGrid);
+	LatticeFermion yd(ExpandedFrbGrid);
+
+	expandLatticeFermion(x, xd);
+
+	HermOpEO.AdjOp(x, y);
+	
+	WilsonFermion5DStatic::dirichlet = true;
+	expandedHermOpEO.AdjOp(xd, yd);
+	WilsonFermion5DStatic::dirichlet = false;
+	shrinkLatticeFermion(yd, ydd);	
+	
+	if(UGrid->ThisRank() != 0) y = zero;
+
+	std::cout << GridLogMessage << "|y - ydd|**2 : " << norm2(y) << "\t" << norm2(ydd) << std::endl;
+	
 	CGTimer.Start();
 //	CG(HermOpEO, Mdag_src_o, result_o);
 	CGTimer.Stop();
