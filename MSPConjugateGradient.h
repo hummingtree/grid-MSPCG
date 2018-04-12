@@ -33,83 +33,80 @@ directory
 
 namespace Grid {
 
-template<class sc>
-void expandLatticeFermion(const Lattice<sc>& in, Lattice<sc>& out){
-	
-	typedef typename sc::scalar_object sobj;
-	
-	GridBase* gbin = in._grid;
-	GridBase* gbout = out._grid;
-	assert(gbin._ndimension == gbout._ndimension);
-	assert(gbin._ndimension == 5);
-	for(int d = 1; d < 5; d++){ // Ls is the 0th index here.
-		assert(gbin._ldimensions[d]+4 == gbout._ldimensions[d]);
+class ExpandGrid{
+public:
+	GridCartisian* coarse_gauge_grid;
+	GridCartisian* fine_gauge_grid;
+	GridCartesian* coarse_fermion_grid;
+	GridRedBlackCartesian* coarse_fermion_rb_grid;
+	GridRedBlackCartesian* fine_fermion_rb_grid;
+	int expansion;
+
+	std::vector<std::vector<int>> fine_fermion_rb_grid_in_list;
+	std::vector<std::vector<int>> coarse_fermion_rb_grid_in_list;
+	std::vector<std::vector<int>> fine_fermion_rb_grid_out_list;
+
+	inline void init(GridCartisian* _coarse_gauge_grid, int _expansion, int Ls){
+
+		expansion = _expansion;		
+		coarse_gauge_grid = _coarse_gauge_grid;
+		coarse_fermion_grid = SpaceTimeGrid::makeFiveDimGrid(Ls, coarse_gauge_grid);
+		coarse_fermion_rb_grid = SpaceTimeGrid::makeFiveDimRedBlackGrid(Ls, coarse_gauge_grid);
+
+		std::vector<int> simd_layout = coarse_gauge_grid->_simd_layout;
+    	std::vector<int> mpi_layout  = coarse_gauge_grid->_processors;
+    	std::vector<int> latt_size   = coarse_gauge_grid->_fdimensions;
+    	
+		std::vector<int> expanded_latt_size = latt_size;
+    	for(int i = 0; i < 4; i++){
+       		expanded_latt_size[i] = latt_size[i] + 2*expansion*mpi_layout[i];
+    	}
+
+		fine_gauge_grid = SpaceTimeGrid::makeFourDimGrid(expanded_latt_size, simd_layout, mpi_layout);
+		fine_fermion_rb_grid = SpaceTimeGrid::makeFiveDimRedBlackGrid(Ls, fine_gauge_grid);
+
+		fine_fermion_rb_grid_in_list.resize(0);
+		fine_fermion_rb_grid_out_list.resize(0);
+
+		for(int index = 0; index < fine_fermion_rb_grid->lSites(); index++){
+			std::vector<int> lcoor_out(5), lcoor_in(5), full_lcoor_out(5), full_lcoor_in(5);
+			fine_fermion_rb_grid->LocalIndexToLocalCoor(index, lcoor_out);
+
+			lcoor_in[0] = lcoor_out[0]; // s: Ls
+			lcoor_in[1] = lcoor_out[1] - expansion/2; // x is the _checker_dim
+			for(int d = 2; d < 5; d++){
+				lcoor_in[d] = lcoor_out[d] - expansion;
+			}
+
+			for(int cb = 0; cb < 2; cb++){
+
+				for(int d = 0; d < 5; d++){ // Ls is the 0th index here.
+					full_lcoor_out[d] = lcoor_out[d];
+					full_lcoor_in[d] = lcoor_in[d];
+				}
+
+				full_lcoor_out[1] = lcoor_out[1]*2+cb;
+				full_lcoor_in[1] = lcoor_in[1]*2+cb;
+
+				if(1 != gbout->CheckerBoard(full_lcoor_out)) continue;
+
+
+				if( lcoor_in[1] >= 0 and lcoor_in[1] < coarse_fermion_rb_grid->_ldimensions[1] and
+					lcoor_in[2] >= 0 and lcoor_in[2] < coarse_fermion_rb_grid->_ldimensions[2] and
+					lcoor_in[3] >= 0 and lcoor_in[3] < coarse_fermion_rb_grid->_ldimensions[3] and
+					lcoor_in[4] >= 0 and lcoor_in[4] < coarse_fermion_rb_grid->_ldimensions[4]){
+					
+					fine_fermion_rb_grid_in_list.pushback(full_lcoor_out);
+					coarse_fermion_rb_grid_in_list.pushback(full_lcoor_in);
+
+				}else{
+					fine_fermion_rb_grid_out_list.pushback(full_lcoor_out);
+				}
+
+			}
+		}		
 	}
-
-	for(int index = 0; index < out._grid->lSites(); index++){
-		std::vector<int> lcoor_out, lcoor_in;
-		out._grid->LocalIndexToLocalCoor(index, lcoor_out);
-		
-		lcoor_in[0] = lcoor_out[0];
-		for(int d = 1; d < 5; d++){
-			lcoor_in[d] = lcoor_out[d]-2;
-		}
-		
-		if( lcoor_in[1]>=0 and lcoor_in[1]<gbin._ldimensions[1] and
-			lcoor_in[2]>=0 and lcoor_in[2]<gbin._ldimensions[2] and
-			lcoor_in[3]>=0 and lcoor_in[3]<gbin._ldimensions[3] and
-			lcoor_in[4]>=0 and lcoor_in[4]<gbin._ldimensions[4]){
-
-			sobj s;
-			peekLocalSite(s, in, lcoor_in);
-			pokeLocalSite(s, out, lcoor_out);
-			
-		}else{
-			pokeLocalSite(0., out, lcoor_out);
-		}
-	}
-	// Simply expand and then copy/merge.
-
-}
-
-template<class gf>
-void expandLatticeGaugeField(const Lattice<gf>& in, Lattice<gf>& out){
-	
-	typedef typename gf::scalar_object sobj;
-	
-	GridBase* gbin = in._grid;
-	GridBase* gbout = out._grid;
-	assert(gbin._ndimension == gbout._ndimension);
-	assert(gbin._ndimension == 5);
-	for(int d = 1; d < 5; d++){ // Ls is the 0th index here.
-		assert(gbin._ldimensions[d]+4 == gbout._ldimensions[d]);
-	}
-
-	for(int index = 0; index < out._grid->lSites(); index++){
-		std::vector<int> lcoor_out, lcoor_in;
-		out._grid->LocalIndexToLocalCoor(index, lcoor_out);
-		
-		lcoor_in[0] = lcoor_out[0];
-		for(int d = 1; d < 5; d++){
-			lcoor_in[d] = lcoor_out[d]-2;
-		}
-		
-		if( lcoor_in[1]>=0 and lcoor_in[1]<gbin._ldimensions[1] and
-			lcoor_in[2]>=0 and lcoor_in[2]<gbin._ldimensions[2] and
-			lcoor_in[3]>=0 and lcoor_in[3]<gbin._ldimensions[3] and
-			lcoor_in[4]>=0 and lcoor_in[4]<gbin._ldimensions[4]){
-
-			sobj s;
-			peekLocalSite(s, in, lcoor_in);
-			pokeLocalSite(s, out, lcoor_out);
-			
-		}else{
-			pokeLocalSite(0., out, lcoor_out);
-		}
-	}
-	// Simply expand and then copy/merge.
-
-}
+};
 
 /////////////////////////////////////////////////////////////
 // Base classes for iterative processes based on operators

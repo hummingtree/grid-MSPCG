@@ -3,6 +3,8 @@
 
 #include <qlat/qlat.h>
 
+#include "MSPConjugateGradient.h"
+
 using namespace std;
 using namespace Grid;
 using namespace Grid::QCD;
@@ -382,23 +384,27 @@ int main(int argc, char** argv) {
 	pickCheckerboard(Odd, x, src);
 	LatticeFermion y(FrbGrid);
 	LatticeFermion ydd(FrbGrid);
-	if(UGrid->ThisRank() != 0) x = zero;
 
 	LatticeFermion xd(ExpandedFrbGrid);
 	LatticeFermion yd(ExpandedFrbGrid);
 
 	expandLatticeFermion(x, xd);
 
-	HermOpEO.AdjOp(x, y);
+	if(UGrid->ThisRank() != 0) x = zero;
+	HermOpEO.Op(x, y);
+	HermOpEO.AdjOp(y, x);
 	
+	expandedDMobius.ZeroCounters();
 	WilsonFermion5DStatic::dirichlet = true;
-	expandedHermOpEO.AdjOp(xd, yd);
+	expandedHermOpEO.Op(xd, yd);
+	expandedHermOpEO.AdjOp(yd, xd);
 	WilsonFermion5DStatic::dirichlet = false;
-	shrinkLatticeFermion(yd, ydd);	
+	shrinkLatticeFermion(xd, ydd);	
 	
-	if(UGrid->ThisRank() != 0) y = zero;
+	if(UGrid->ThisRank() != 0) x = zero;
+	if(UGrid->ThisRank() != 0) ydd = zero;
 
-	std::cout << GridLogMessage << "|y - ydd|**2 : " << norm2(y) << "\t" << norm2(ydd) << std::endl;
+	std::cout << GridLogMessage << "|y - ydd|**2 : " << norm2(x) << "\t" << norm2(ydd) << std::endl;
 	
 	CGTimer.Start();
 //	CG(HermOpEO, Mdag_src_o, result_o);
@@ -408,6 +414,7 @@ int main(int argc, char** argv) {
 
 	std::cout << GridLogMessage << "######## Dhop calls summary" << std::endl;
 	DMobius.Report();
+	expandedDMobius.Report();
 
 	Grid_finalize();
 }

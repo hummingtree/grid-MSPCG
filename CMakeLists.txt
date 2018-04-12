@@ -13,7 +13,7 @@ set ( GRID_DIR "/global/homes/j/jiquntu/grid-build" )
 
 set ( QLAT_DIR "/global/homes/j/jiquntu/qlat-build/1.0" )
 
-set ( FLAGS "-xmic-avx512 -O3 -mkl -std=c++11 -fopenmp -axMIC-AVX512,CORE-AVX2 -g" )
+set ( FLAGS "-xmic-avx512 -O3 -mkl -std=c++11 -fopenmp -axMIC-AVX512,CORE-AVX2 -g -D_OPENMP" )
 
 SET( CMAKE_CXX_FLAGS ${FLAGS} )
 SET( CMAKE_C_FLAGS ${FLAGS} )
