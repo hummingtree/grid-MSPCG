@@ -145,6 +145,94 @@ public:
 	}
 };
 
+template<class sc>
+void expand_fermion(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out){
+	
+	GridStopWatch watch;
+	watch.Start();
+
+//	conformable(eg.coarse_fermion_rb_grid, in._grid);
+//	conformable(eg.fine_fermion_rb_grid, out._grid);
+
+	// Simply expand and then copy/merge.
+	// Set the Boundary sites to zero.
+	typedef typename sc::scalar_object sobj;
+	
+	out.checkerboard = in.checkerboard;
+
+	parallel_for(size_t index = 0; index < eg.fine_fermion_rb_grid_in_list.size(); index++){
+        sobj s;
+        peekLocalSite(s, in, eg.coarse_fermion_rb_grid_in_list[index]);
+        pokeLocalSite(s, out, eg.fine_fermion_rb_grid_in_list[index]);
+    }
+
+	parallel_for(size_t index = 0; index < eg.fine_fermion_rb_grid_out_list.size(); index++){
+		sobj s; memset(&s, 0, sizeof(sobj));
+		pokeLocalSite(s, out, eg.fine_fermion_rb_grid_out_list[index]);
+	}
+
+	watch.Stop();
+
+	std::cout << GridLogMessage << "Total fermion expansion time : " << watch.Elapsed() << std::endl;
+}
+
+template<class sc>
+void shrink_fermion(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out){
+	
+	GridStopWatch watch;
+	watch.Start();
+
+//	conformable(eg.coarse_fermion_rb_grid, in._grid);
+//	conformable(eg.fine_fermion_rb_grid, out._grid);
+
+	// Simply expand and then copy/merge.
+	// Set the Boundary sites to zero.
+	typedef typename sc::scalar_object sobj;
+	
+	out.checkerboard = in.checkerboard;
+
+	parallel_for(size_t index = 0; index < eg.coarse_fermion_rb_grid_in_list.size(); index++){
+        sobj s;
+        peekLocalSite(s, in, eg.fine_fermion_rb_grid_in_list[index]);
+        pokeLocalSite(s, out, eg.coarse_fermion_rb_grid_in_list[index]);
+    }
+
+	watch.Stop();
+
+	std::cout << GridLogMessage << "Total fermion shrinking time : " << watch.Elapsed() << std::endl;
+}
+
+template<class vobj>
+void expand_gauge_field_qlat(ExpandGrid& eg, const Lattice<vobj>& in, Lattice<vobj>& out){
+	
+	// Simply expand and then copy/merge.
+	typedef typename vobj::scalar_object sobj;
+	
+	parallel_for(size_t index = 0; index < eg.fine_gauge_grid_in_list.size(); index++){
+        sobj s;
+        peekLocalSite(s, in, eg.coarse_gauge_grid_in_list[index]);
+        pokeLocalSite(s, out, eg.fine_gauge_grid_in_list[index]);
+    }
+	
+	std::vector<sobj> out_lex(out._grid->lSites());
+  	unvectorizeToLexOrdArray(out_lex, out);
+
+	qlat::Coordinate global_size(in._grid->_gdimensions[0], in._grid->_gdimensions[1], in._grid->_gdimensions[2], in._grid->_gdimensions[3]);
+	qlat::Geometry geo; geo.init(global_size, 1); // packing gauge links in four directions together, therefore multiplicity = 1
+
+	qlat::Coordinate expanse(eg.expansion, eg.expansion, eg.expansion, eg.expansion);
+	geo.resize(expanse, expanse);
+
+	qlat::Field<sobj> f; f.init(geo);
+	assert(f.field.size()*1 == out._grid->lSites()); // 1 for multiplicity
+	memcpy(f.field.data(), out_lex.data(), f.field.size()*sizeof(sobj));
+	// DO comm.
+	refresh_expanded(f);
+	
+	memcpy(out_lex.data(), f.field.data(), f.field.size()*sizeof(sobj));
+	vectorizeFromLexOrdArray(out_lex, out);
+
+}
 // Double inner product
 template<class vobj>
 inline ComplexD local_inner_product(const Lattice<vobj> &left,const Lattice<vobj> &right) 
@@ -184,7 +272,9 @@ inline RealD local_norm_sqr(const Lattice<vobj> &arg){
 
 template<class sc>
 void zero_boundary_fermion(ExpandGrid& eg, Lattice<sc>& in){
-	
+
+	TIMER("zero_boundary_fermion");
+
 	typedef typename sc::scalar_object sobj;
 
 	parallel_for(size_t index = 0; index < eg.fine_fermion_rb_grid_out_list.size(); index++){
@@ -202,10 +292,10 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 
 	sol = zero;
 
-	F mp(src);
-	F mmp(src);
-	F r(src);
-	F p(src);
+	static F mp(src);
+	static F mmp(src);
+	static F r(src);
+	static F p(src);
 
 	r = src;
 	p = src;
@@ -216,12 +306,16 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 	WilsonFermion5DStatic::dirichlet = true;
 
 	for(int local_loop_count = 0; local_loop_count < iterations; local_loop_count++){
-
+		{
+		TIMER("local_conjugate_gradient/dslash");
 		D.Op(p, mp);
         D.AdjOp(mp, mmp);
+		}
 
+		{
+		TIMER("local_conjugate_gradient/linalg");
 		zero_boundary_fermion(eg, mmp);
-		zero_boundary_fermion(eg, p); // not necessary?
+//		zero_boundary_fermion(eg, p); // not necessary?
         Mpk2 = std::real(local_inner_product(p, mmp));
         MdagMpk2 = local_norm_sqr(mmp); // Dag yes, (Mdag * M * p_k, Mdag * M * p_k)
 
@@ -229,22 +323,22 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 
 		sol = sol + alpha * p;
 		r = r - alpha * mmp;
-		zero_boundary_fermion(eg, r);
+//		zero_boundary_fermion(eg, r);
 		rkp12 = local_norm_sqr(r);
 
 		beta = rkp12 / rk2;
 		rk2 = rkp12;
 
 		p = r + beta * p;
-
-        if ( true ){
-			zero_boundary_fermion(eg, sol);
-            RealD sol2 = local_norm_sqr(sol);
-            if( src._grid->ThisRank() == 0 ){
-                printf("local_conjugate_gradient_MdagM: local iter. #%04d on NODE #%04d: r2 = %.4E psi2 = %.4E alpha = %.4E beta = %.4E \n",
-                        local_loop_count, src._grid->ThisRank(), rk2, sol2, alpha, beta);
-            }
-        }
+		}
+//        if ( true ){
+//			zero_boundary_fermion(eg, sol);
+//            RealD sol2 = local_norm_sqr(sol);
+//            if( src._grid->ThisRank() == 0 ){
+//                printf("local_conjugate_gradient_MdagM: local iter. #%04d on NODE #%04d: r2 = %.4E psi2 = %.4E alpha = %.4E beta = %.4E \n",
+//                        local_loop_count, src._grid->ThisRank(), rk2, sol2, alpha, beta);
+//            }
+//        }
  		
 	}
 	
@@ -254,172 +348,94 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 }
 
 template<class F>
-int MSP_conjugate_gradient(ExpandGrid& eg, LinearOperatorBase<F>& cD, LinearOperatorBase<F>& fD, const F& c_src, F& c_sol, RealD percent, int f_iter)
+int MSP_conjugate_gradient(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOperatorBase<F>& fD, const F& src, F& sol, RealD percent, int f_iter, size_t max_iter=50000)
 {
 
 	RealD alpha, beta, rkzk, pkApk, zkp1rkp1, zkrk;
+	RealD r2, src_sqr, tgt_r2;
 
-	Fermion_t p   = threadedAllocFermion(mem_fast); 
-	Fermion_t tmp = threadedAllocFermion(mem_fast); 
-	Fermion_t mp  = threadedAllocFermion(mem_fast); 
-	Fermion_t mmp = threadedAllocFermion(mem_fast); 
-	Fermion_t r   = threadedAllocFermion(mem_fast); 
-	
-	Fermion_t z   = threadedAllocFermion(mem_fast); 
+	F p(src);
+	F mp(src);
+	F mmp(src);
+	F r(src);
+	F z(src);
 
-	F p(c_src);
-	F mp(c_src);
-	F mmp(c_src);
-	F r(c_src);
+	F f_r(eg.fine_fermion_rb_grid);
+	F f_z(eg.fine_fermion_rb_grid);
 
-	cD.Op(c_sol, mp);
-	cD.AdjOp(mp, mmp);
+	D.Op(sol, mp);
+	D.AdjOp(mp, mmp);
 
 	r = src - mmp;
+	r2 = norm2(r);
 	
+	src_sqr = norm2(src);
+	tgt_r2  = src_sqr * percent * percent;
 
-	d=Mprec(psi, mp, tmp, dag);
-	b=Mprec(mp, mmp, tmp, ndag);
-
-	axpy(r, mmp, src, -1.0);
-	MSinv(z, r, dag); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
-	copy(p, z); // p0 = z0
-	// axpy(p, mmp, src, -1.0);
-
-//	a = norm(p);
-	cp = norm(r);
-
-	Float ssq =  norm(src);
-	ThreadBossDebug("CGNE_prec gues %le \n",guess);
-	ThreadBossDebug("CGNE_prec src  %le \n",ssq);
-	ThreadBossDebug("CGNE_prec  mp  %le \n",d);
-	ThreadBossDebug("CGNE_prec  mmp %le \n",b);
-	ThreadBossDebug("CGNE_prec   r  %le \n",cp);
-
-	Float rsq =  residual * residual * ssq;
-
-	//Check if guess is really REALLY good :)
-	if ( cp <= rsq ) {
-		ThreadBossMessage("CGNE_prec_MSP k=0 converged - suspiciously nice guess %le %le\n",cp,rsq);
-		threadedFreeFermion(tmp);
-		threadedFreeFermion(p);
-		threadedFreeFermion(mp);
-		threadedFreeFermion(mmp);
-		threadedFreeFermion(r);
-		threadedFreeFermion(z);
-		if ( this->isBoss() && (!me) ) { 
-			this->InverterExit();
+	if(r2 < tgt_r2){
+		if(not src._grid->ThisRank()){
+			printf("MSP_conjugate_gradient() CONVERGED at iteration 0;\n");
 		}
 		return 0;
 	}
 
-	ThreadBossMessage("CGNE_prec_MSP: k=0 residual %le rsq %le time=0.0\n",cp,rsq);
+	expand_fermion(eg, r, f_r);
+	local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
+	shrink_fermion(eg, f_z, z);
 
-	if ( this->watchfile ) {
-		ThreadBossDebug("CGNE_prec watching file \"%s\"\n",this->watchfile);
-	}
-	struct timeval start,stop;
-	gettimeofday(&start,NULL);
+	p = z; // p0 = z0
 
-	int k;
-	uint64_t t0,t1;
-	t0 = GetTimeBase();
-	for (k=1;k<=max_iter;k++){
+	for(size_t k = 0; k < max_iter; k++){
 
-		this->iter=k;
-		uint64_t t_iter_1=GetTimeBase();
+		rkzk = std::real(innerProduct(r, z));
 
-		// c=cp;
-		rkzk = dot(r, z).real();
-
-		uint64_t t_mprec_1=GetTimeBase();
-		pkApk = Mprec(p, mp, tmp, dag, 1);// Dag no
-		uint64_t t_mprec_2=GetTimeBase();
+		D.Op(p, mp);
+		D.AdjOp(mp, mmp);
+		pkApk = std::real(innerProduct(p, mmp));
 		alpha = rkzk / pkApk; // alpha_k
 
-		uint64_t t_mprec_3=GetTimeBase();
-		double qq=Mprec(mp, mmp, tmp, ndag); // Dag yes
-		uint64_t t_mprec_4=GetTimeBase();
+		sol = sol + alpha * p; // x_k+1 = x_k + alpha * p_k
+		r = r - alpha * mmp; // r_k+1 = r_k - alpha * Ap_k
+    
+		expand_fermion(eg, r, f_r);
+	    local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter); // z_k+1 = M^-1 * r_k+1
+		shrink_fermion(eg, f_z, z);
 		
-		axpy(psi, p, psi, alpha); // x_k+1 = x_k + alpha * p_k
-		axpy(r, mmp, r, -alpha); // r_k+1 = r_k - alpha * Ap_k
-
-		MSinv(z, r, dag); // z_k+1 = M^-1 * r_k+1
-
-		zkp1rkp1 = dot(z, r).real();	
+		zkp1rkp1 = std::real(innerProduct(z, r));	
 		
 		beta = zkp1rkp1 / rkzk;
-		axpy(p, p, z, beta); // p_k+1 = z_k+1 + beta * p_k
+		p = z + beta * p; // p_k+1 = z_k+1 + beta * p_k
 	
-		cp = norm(r);
+		r2 = norm2(r);
 
-		uint64_t tpsi2=GetTimeBase();
-		uint64_t t_iter_2=GetTimeBase();
-
-		if ( ((k%1 == 0) && (verbose!=0)) || (verbose > 10) ){
-			t1 = GetTimeBase();
-			ThreadBossMessage("CGNE_prec_MSP/iter.count/r**2/time/: %05d %8.4e %8.4e %4.2f\n",k,cp,sqrt(cp/ssq),(t1-t0)/MHz()*1.0e-06);
+		if ( true ){
+		    if(not src._grid->ThisRank()){
+				printf("MSPCG/iter.count/r2/target r2/: %05d %8.4e %8.4e\n", k, r2, tgt_r2);
+			}
 		}
 
 		// Stopping condition
-		if ( cp <= rsq ) { 
-
-			gettimeofday(&stop,NULL);
-			struct timeval diff;
-			timersub(&stop,&start,&diff);
-
-			ThreadBossMessage("CGNE_prec converged in %d iterations\n",k);
-			ThreadBossMessage("CGNE_prec converged in %d.%6.6d s\n",diff.tv_sec,diff.tv_usec);
-
-
-			double flops = mprecFlops()*2.0 + 2.0*axpyNormFlops() + axpyFlops()*2.0;
-			flops = flops * k;
-
-			double t = diff.tv_sec*1.0E6 + diff.tv_usec;
-			ThreadBossMessage("CGNE_prec: %d mprec flops/site\n",mprecFlopsPerSite());
-			ThreadBossMessage("CGNE_prec: %le flops\n",flops);
-			ThreadBossMessage("CGNE_prec: %le mflops per node\n",flops/t);
-
-			Mprec(psi,mp,tmp,dag);
-			Mprec(mp,mmp,tmp,ndag); 
-			axpy(tmp,src,mmp,-1.0);
-
-			double  mpnorm = sqrt(norm(mp));
-			double mmpnorm = sqrt(norm(mmp));
-			double psinorm = sqrt(norm(psi));
-			double srcnorm = sqrt(norm(src));
-			double tmpnorm = sqrt(norm(tmp));
-			double true_residual = tmpnorm/srcnorm;
-			ThreadBossMessage("CGNE_prec: true residual is %le, solution %le, source %le \n",true_residual,psinorm,srcnorm);
-			ThreadBossMessage("CGNE_prec: target residual was %le \n",residual);
-			ThreadBossMessage("CGNE_prec: mp %le, mmp %le\n",mpnorm,mmpnorm);
-
-			threadedFreeFermion(tmp);
-			threadedFreeFermion(p);
-			threadedFreeFermion(mp);
-			threadedFreeFermion(mmp);
-			threadedFreeFermion(r);
-			if ( this->isBoss() && (!me) ) { 
-				this->InverterExit();
-			}
+		if ( r2 < tgt_r2 ) { 
+		    
+			D.Op(sol, mp);
+		    D.AdjOp(mp, mmp);
+		    r = src - mmp;
+		    r2 = norm2(r);	
+            
+			if(not src._grid->ThisRank()){
+                printf("MSPCG CONVERGED at iteration %05d with true r2 = %8.4e: target r2 = %8.4e\n", k, r2, tgt_r2);
+            }
+			
 			return k;
 
 		}
 
 	}
-	ThreadBossMessage("CGNE_prec: CG not converged after %d iter resid %le\n",k,sqrt(cp/ssq));
-	threadedFreeFermion(tmp);
-	threadedFreeFermion(p);
-	threadedFreeFermion(mp);
-	threadedFreeFermion(mmp);
-	threadedFreeFermion(r);
-	threadedFreeFermion(z);
-	if ( this->isBoss() && (!me) ) { 
-		this->InverterExit();
-	}
-
+    if(not src._grid->ThisRank()){
+        printf("MSPCG has NOT CONVERGED after iteration %05d\n", max_iter);
+    }
+	
 	return -1;
-
 }
 
 #endif

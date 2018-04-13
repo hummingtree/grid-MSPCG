@@ -58,94 +58,6 @@ void set_local_site(Lattice<vobj>& to, std::vector<int>& to_site, int ch){
 };
 */
 
-template<class sc>
-void expand_fermion(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out){
-	
-	GridStopWatch watch;
-	watch.Start();
-
-//	conformable(eg.coarse_fermion_rb_grid, in._grid);
-//	conformable(eg.fine_fermion_rb_grid, out._grid);
-
-	// Simply expand and then copy/merge.
-	// Set the Boundary sites to zero.
-	typedef typename sc::scalar_object sobj;
-	
-	out.checkerboard = in.checkerboard;
-
-	parallel_for(size_t index = 0; index < eg.fine_fermion_rb_grid_in_list.size(); index++){
-        sobj s;
-        peekLocalSite(s, in, eg.coarse_fermion_rb_grid_in_list[index]);
-        pokeLocalSite(s, out, eg.fine_fermion_rb_grid_in_list[index]);
-    }
-
-	parallel_for(size_t index = 0; index < eg.fine_fermion_rb_grid_out_list.size(); index++){
-		sobj s; memset(&s, 0, sizeof(sobj));
-		pokeLocalSite(s, out, eg.fine_fermion_rb_grid_out_list[index]);
-	}
-
-	watch.Stop();
-
-	std::cout << GridLogMessage << "Total fermion expansion time : " << watch.Elapsed() << std::endl;
-}
-
-template<class sc>
-void shrink_fermion(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out){
-	
-	GridStopWatch watch;
-	watch.Start();
-
-//	conformable(eg.coarse_fermion_rb_grid, in._grid);
-//	conformable(eg.fine_fermion_rb_grid, out._grid);
-
-	// Simply expand and then copy/merge.
-	// Set the Boundary sites to zero.
-	typedef typename sc::scalar_object sobj;
-	
-	out.checkerboard = in.checkerboard;
-
-	parallel_for(size_t index = 0; index < eg.coarse_fermion_rb_grid_in_list.size(); index++){
-        sobj s;
-        peekLocalSite(s, in, eg.fine_fermion_rb_grid_in_list[index]);
-        pokeLocalSite(s, out, eg.coarse_fermion_rb_grid_in_list[index]);
-    }
-
-	watch.Stop();
-
-	std::cout << GridLogMessage << "Total fermion shrinking time : " << watch.Elapsed() << std::endl;
-}
-
-template<class vobj>
-void expand_gauge_field_qlat(ExpandGrid& eg, const Lattice<vobj>& in, Lattice<vobj>& out){
-	
-	// Simply expand and then copy/merge.
-	typedef typename vobj::scalar_object sobj;
-	
-	parallel_for(size_t index = 0; index < eg.fine_gauge_grid_in_list.size(); index++){
-        sobj s;
-        peekLocalSite(s, in, eg.coarse_gauge_grid_in_list[index]);
-        pokeLocalSite(s, out, eg.fine_gauge_grid_in_list[index]);
-    }
-	
-	std::vector<sobj> out_lex(out._grid->lSites());
-  	unvectorizeToLexOrdArray(out_lex, out);
-
-	qlat::Coordinate global_size(in._grid->_gdimensions[0], in._grid->_gdimensions[1], in._grid->_gdimensions[2], in._grid->_gdimensions[3]);
-	qlat::Geometry geo; geo.init(global_size, 1); // packing gauge links in four directions together, therefore multiplicity = 1
-
-	qlat::Coordinate expanse(eg.expansion, eg.expansion, eg.expansion, eg.expansion);
-	geo.resize(expanse, expanse);
-
-	qlat::Field<sobj> f; f.init(geo);
-	assert(f.field.size()*1 == out._grid->lSites()); // 1 for multiplicity
-	memcpy(f.field.data(), out_lex.data(), f.field.size()*sizeof(sobj));
-	// DO comm.
-	refresh_expanded(f);
-	
-	memcpy(out_lex.data(), f.field.data(), f.field.size()*sizeof(sobj));
-	vectorizeFromLexOrdArray(out_lex, out);
-
-}
 int main(int argc, char** argv) {
 	Grid_init(&argc, &argv);
 
@@ -233,6 +145,8 @@ int main(int argc, char** argv) {
 	std::cout << GridLogMessage << WilsonLoops<PeriodicGimplR>::avgPlaquette(Umu) << " \t " << WilsonLoops<PeriodicGimplR>::avgPlaquette(expandedUmu) << std::endl;
 
 	MobiusFermionR expandedDMobius(expandedUmu, *eg.fine_fermion_grid, *eg.fine_fermion_rb_grid, *eg.fine_gauge_grid, *eg.fine_gauge_rb_grid, mass, M5, 22./12., 10./12.);
+	expandedDMobius.StencilOdd.zero_comm_recv_buffers();
+	expandedDMobius.StencilEven.zero_comm_recv_buffers();
 //	LatticeFermion src_o_dup(FrbGrid);
 //	localConvert(src_o, src_o_dup);
 //	std::cout << GridLogMessage << norm2(src_o) << " \t " << norm2(src_o_dup) << std::endl;
@@ -256,7 +170,7 @@ int main(int argc, char** argv) {
 
 	expand_fermion(eg, x, xd);
 
-	if(UGrid->ThisRank() != 0) x = zero;
+//	if(UGrid->ThisRank() != 0) x = zero;
 	HermOpEO.Op(x, y);
 	HermOpEO.AdjOp(y, x);
 	
@@ -273,6 +187,8 @@ int main(int argc, char** argv) {
 	std::cout << GridLogMessage << "|y - ydd|**2 : " << local_norm_sqr(x) << "\t" << local_norm_sqr(ydd) << std::endl;
 
 	local_conjugate_gradient_MdagM(eg, expandedHermOpEO, xd, yd, 20);
+
+	MSP_conjugate_gradient(eg, HermOpEO, expandedHermOpEO, x, y, 1e-10, 6);
 
 	CGTimer.Start();
 //	CG(HermOpEO, Mdag_src_o, result_o);
