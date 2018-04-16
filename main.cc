@@ -63,14 +63,14 @@ int main(int argc, char** argv) {
 
 	GridLogIterative.Active(1);
 
-	const int Ls = 12;
+	const int Ls = 10;
 
 	GridCartesian* UGrid = SpaceTimeGrid::makeFourDimGrid(GridDefaultLatt(), GridDefaultSimd(Nd, vComplexD::Nsimd()), GridDefaultMpi());
 //	GridRedBlackCartesian* UrbGrid = SpaceTimeGrid::makeFourDimRedBlackGrid(UGrid);
 //	GridCartesian* FGrid = SpaceTimeGrid::makeFiveDimGrid(Ls, UGrid);
 //	GridRedBlackCartesian* FrbGrid = SpaceTimeGrid::makeFiveDimRedBlackGrid(Ls, UGrid);
 //
-//	FrbGrid->show_decomposition();
+	UGrid->show_decomposition();
 
 	qlat::Coordinate node_coor(UGrid->ThisProcessorCoor()[0], UGrid->ThisProcessorCoor()[1], UGrid->ThisProcessorCoor()[2], UGrid->ThisProcessorCoor()[3]);
 	qlat::Coordinate node_size(GridDefaultMpi()[0], GridDefaultMpi()[1], GridDefaultMpi()[2], GridDefaultMpi()[3]);
@@ -113,16 +113,19 @@ int main(int argc, char** argv) {
 	int orthosz =latt_size[orthodir];
 
 	FieldMetaData header;
-	std::string file("/global/homes/j/jiquntu/configurations/32x64x12ID_b1.75_mh0.045_ml0.0001/configurations/ckpoint_lat.160");
+//	std::string file("/global/homes/j/jiquntu/configurations/32x64x12ID_b1.75_mh0.045_ml0.0001/configurations/ckpoint_lat.160");
+	std::string file("/global/homes/j/jiquntu/configurations/64x128x10I_mh0.02659_ml0.000661/ckpoint_lat.2850");
 	NerscIO::readConfiguration(Umu, header, file);
 
 //	SU3::HotConfiguration(RNG4, Umu);
 
 	std::cout << GridLogMessage << "Lattice dimensions: " << GridDefaultLatt() << "   Ls: " << Ls << std::endl;
 
-	RealD mass = 0.0001;
+	RealD mass = 0.000661;
 	RealD M5 = 1.8;
-	MobiusFermionR DMobius(Umu, *eg.coarse_fermion_grid, *eg.coarse_fermion_rb_grid, *eg.coarse_gauge_grid, *eg.coarse_gauge_rb_grid, mass, M5, 22./12., 10./12.);
+	RealD b = 1.5;
+	RealD c = 0.5;
+	MobiusFermionR DMobius(Umu, *eg.coarse_fermion_grid, *eg.coarse_fermion_rb_grid, *eg.coarse_gauge_grid, *eg.coarse_gauge_rb_grid, mass, M5, b, c);
 	DMobius.ZeroCounters();
 	
 	LatticeFermion src_o(eg.coarse_fermion_rb_grid);
@@ -132,19 +135,19 @@ int main(int argc, char** argv) {
 
 
 	LatticeFermion psi_o(eg.fine_fermion_rb_grid);
-	expand_fermion(eg, src_o, psi_o);
+	expand_fermion_qlat(eg, src_o, psi_o);
 	
 	LatticeFermion src_o_check(eg.coarse_fermion_rb_grid);
 	shrink_fermion(eg, psi_o, src_o_check);
 	std::cout << "Fermion expanded." << std::endl;
-	std::cout << GridLogMessage << norm2(src_o) << " \t " << norm2(psi_o) << " \t " << norm2(src_o_check) << std::endl;
+	std::cout << GridLogMessage << norm2(src_o) << " \t " << local_norm_sqr_center(eg, psi_o) << " \t " << norm2(src_o_check) << std::endl;
 
 	LatticeGaugeField expandedUmu(eg.fine_gauge_grid);
 	expand_gauge_field_qlat(eg, Umu, expandedUmu);
 	std::cout << "Gauge field expanded." << std::endl;
 	std::cout << GridLogMessage << WilsonLoops<PeriodicGimplR>::avgPlaquette(Umu) << " \t " << WilsonLoops<PeriodicGimplR>::avgPlaquette(expandedUmu) << std::endl;
 
-	MobiusFermionR expandedDMobius(expandedUmu, *eg.fine_fermion_grid, *eg.fine_fermion_rb_grid, *eg.fine_gauge_grid, *eg.fine_gauge_rb_grid, mass, M5, 22./12., 10./12.);
+	MobiusFermionR expandedDMobius(expandedUmu, *eg.fine_fermion_grid, *eg.fine_fermion_rb_grid, *eg.fine_gauge_grid, *eg.fine_gauge_rb_grid, mass, M5, b, c);
 	expandedDMobius.StencilOdd.zero_comm_recv_buffers();
 	expandedDMobius.StencilEven.zero_comm_recv_buffers();
 //	LatticeFermion src_o_dup(FrbGrid);
@@ -152,53 +155,71 @@ int main(int argc, char** argv) {
 //	std::cout << GridLogMessage << norm2(src_o) << " \t " << norm2(src_o_dup) << std::endl;
 
 	GridStopWatch CGTimer;
+	GridStopWatch MSPCGTimer;
 
 	SchurDiagMooeeOperator<MobiusFermionR, LatticeFermion> HermOpEO(DMobius);
 	SchurDiagMooeeOperator<MobiusFermionR, LatticeFermion> expandedHermOpEO(expandedDMobius);
-	ConjugateGradient<LatticeFermion> CG(1.0e-10, 30000, 0);// switch off the assert
+	ConjugateGradient<LatticeFermion> CG(1.0e-5, 30000, 0);// switch off the assert
 
 	LatticeFermion Mdag_src_o(eg.coarse_fermion_rb_grid);
 	HermOpEO.AdjOp(src_o, Mdag_src_o);
+
+	Mdag_src_o.checkerboard = 1;
 
 	LatticeFermion x(eg.coarse_fermion_rb_grid);
 	pickCheckerboard(Odd, x, src);
 	LatticeFermion y(eg.coarse_fermion_rb_grid);
 	LatticeFermion ydd(eg.coarse_fermion_rb_grid);
 
+	y.checkerboard = 1;
+	y = zero;
+
 	LatticeFermion xd(eg.fine_fermion_rb_grid);
 	LatticeFermion yd(eg.fine_fermion_rb_grid);
 
-	expand_fermion(eg, x, xd);
+	expand_fermion_qlat(eg, x, xd);
 
 //	if(UGrid->ThisRank() != 0) x = zero;
-	HermOpEO.Op(x, y);
-	HermOpEO.AdjOp(y, x);
-	
+//	HermOpEO.Op(x, y);
+//	HermOpEO.AdjOp(y, x);
+
+	xd.checkerboard = 1;
+	yd.checkerboard = 1;
+
 	expandedDMobius.ZeroCounters();
-	WilsonFermion5DStatic::dirichlet = true;
-	expandedHermOpEO.Op(xd, yd);
-	expandedHermOpEO.AdjOp(yd, xd);
-	WilsonFermion5DStatic::dirichlet = false;
-	shrink_fermion(eg, xd, ydd);	
+//	WilsonFermion5DStatic::dirichlet = true;
+//	expandedHermOpEO.Op(xd, yd);
+//	expandedHermOpEO.AdjOp(yd, xd);
+//	WilsonFermion5DStatic::dirichlet = false;
+//	shrink_fermion(eg, xd, ydd);	
 	
 //	if(UGrid->ThisRank() != 0) x = zero;
 //	if(UGrid->ThisRank() != 0) ydd = zero;
 
-	std::cout << GridLogMessage << "|y - ydd|**2 : " << local_norm_sqr(x) << "\t" << local_norm_sqr(ydd) << std::endl;
+//	std::cout << GridLogMessage << "|y - ydd|**2 : " << local_norm_sqr(x) << "\t" << local_norm_sqr(ydd) << std::endl;
 
-	local_conjugate_gradient_MdagM(eg, expandedHermOpEO, xd, yd, 20);
+	local_conjugate_gradient_MdagM_variant(eg, expandedHermOpEO, xd, yd, 20);
 
-	MSP_conjugate_gradient(eg, HermOpEO, expandedHermOpEO, x, y, 1e-10, 6);
-
-	CGTimer.Start();
+//	CGTimer.Start();
 //	CG(HermOpEO, Mdag_src_o, result_o);
-	CGTimer.Stop();
-
-	std::cout << GridLogMessage << "Total CG time : " << CGTimer.Elapsed() << std::endl;
+//	CGTimer.Stop();
+//	std::cout << GridLogMessage << "Total CG time : " << CGTimer.Elapsed() << std::endl;
+//
+	int local_iter = 2;
+	std::cout << GridLogMessage << "MSPCG local iteration : " << local_iter << std::endl;
+	
+	MSPCGTimer.Start();
+	MSP_conjugate_gradient(eg, HermOpEO, expandedHermOpEO, Mdag_src_o, y, 1e-5, local_iter);
+	MSPCGTimer.Stop();
+	std::cout << GridLogMessage << "Total MSPCG time : " << MSPCGTimer.Elapsed() << std::endl;
 
 	std::cout << GridLogMessage << "######## Dhop calls summary" << std::endl;
 	DMobius.Report();
+	DMobius.CayleyReport();
 	expandedDMobius.Report();
+	expandedDMobius.CayleyReport();
+
+	Timer::display();
 
 	Grid_finalize();
 }

@@ -55,6 +55,9 @@ public:
 	std::vector<std::vector<int>> coarse_fermion_rb_grid_in_list;
 	std::vector<std::vector<int>> fine_fermion_rb_grid_out_list;
 
+	std::vector<size_t> fine_fermion_rb_grid_in_olist;
+	std::vector<size_t> fine_fermion_rb_grid_in_ilist;
+	
 	std::vector<std::vector<int>> fine_gauge_grid_in_list;
 	std::vector<std::vector<int>> coarse_gauge_grid_in_list;
 
@@ -81,6 +84,8 @@ public:
 		fine_fermion_rb_grid = SpaceTimeGrid::makeFiveDimRedBlackGrid(Ls, fine_gauge_grid);
 
 		fine_fermion_rb_grid_in_list.resize(0);
+		fine_fermion_rb_grid_in_olist.resize(0);
+		fine_fermion_rb_grid_in_ilist.resize(0);
 		fine_fermion_rb_grid_out_list.resize(0);
 
 // fermion copy list. Maybe by directly get index for memory we will get a better performance?
@@ -114,6 +119,13 @@ public:
 					
 					fine_fermion_rb_grid_in_list.push_back(full_lcoor_out);
 					coarse_fermion_rb_grid_in_list.push_back(full_lcoor_in);
+			
+					size_t odx, idx;
+					odx = ((GridCartesian*)fine_fermion_rb_grid)->oIndex(full_lcoor_out);
+					idx = ((GridCartesian*)fine_fermion_rb_grid)->iIndex(full_lcoor_out);
+					// i/o lists
+					fine_fermion_rb_grid_in_olist.push_back(odx);
+					fine_fermion_rb_grid_in_ilist.push_back(idx);
 
 				}else{
 					fine_fermion_rb_grid_out_list.push_back(full_lcoor_out);
@@ -147,9 +159,8 @@ public:
 
 template<class sc>
 void expand_fermion(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out){
-	
-	GridStopWatch watch;
-	watch.Start();
+
+	TIMER("expand_fermion");
 
 //	conformable(eg.coarse_fermion_rb_grid, in._grid);
 //	conformable(eg.fine_fermion_rb_grid, out._grid);
@@ -171,16 +182,56 @@ void expand_fermion(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out){
 		pokeLocalSite(s, out, eg.fine_fermion_rb_grid_out_list[index]);
 	}
 
-	watch.Stop();
+}
 
-	std::cout << GridLogMessage << "Total fermion expansion time : " << watch.Elapsed() << std::endl;
+template<class sc>
+void expand_fermion_qlat(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out){
+	
+	TIMER("expand_fermion_qlat");
+
+//	conformable(eg.coarse_fermion_rb_grid, in._grid);
+//	conformable(eg.fine_fermion_rb_grid, out._grid);
+
+	// Simply expand and then copy/merge.
+	// Set the Boundary sites to zero.
+	typedef typename sc::scalar_object sobj;
+	
+	out.checkerboard = in.checkerboard;
+
+	parallel_for(size_t index = 0; index < eg.fine_fermion_rb_grid_in_list.size(); index++){
+        sobj s;
+        peekLocalSite(s, in, eg.coarse_fermion_rb_grid_in_list[index]);
+        pokeLocalSite(s, out, eg.fine_fermion_rb_grid_in_list[index]);
+    }
+
+	parallel_for(size_t index = 0; index < eg.fine_fermion_rb_grid_out_list.size(); index++){
+		sobj s; memset(&s, 1, sizeof(sobj));
+		pokeLocalSite(s, out, eg.fine_fermion_rb_grid_out_list[index]);
+	}
+
+	std::vector<sobj> out_lex(out._grid->lSites());
+  	unvectorizeToLexOrdArray(out_lex, out);
+
+	qlat::Coordinate global_size(in._grid->_gdimensions[1], in._grid->_gdimensions[2], in._grid->_gdimensions[3], in._grid->_gdimensions[4]);
+	qlat::Geometry geo; geo.init(global_size, in._grid->_gdimensions[0]); // multiplicity = in._grid->_gdimensions[0]
+
+	qlat::Coordinate expanse(eg.expansion/2, eg.expansion, eg.expansion, eg.expansion); // x direction is the checkerboard dimension so the /2.
+	geo.resize(expanse, expanse);
+
+	qlat::Field<sobj> f; f.init(geo);
+	assert(f.field.size() == out._grid->lSites()); 
+	memcpy(f.field.data(), out_lex.data(), f.field.size()*sizeof(sobj));
+	// DO comm.
+	refresh_expanded(f);
+	
+	memcpy(out_lex.data(), f.field.data(), f.field.size()*sizeof(sobj));
+	vectorizeFromLexOrdArray(out_lex, out);
 }
 
 template<class sc>
 void shrink_fermion(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out){
-	
-	GridStopWatch watch;
-	watch.Start();
+
+	TIMER("shrink_fermion");
 
 //	conformable(eg.coarse_fermion_rb_grid, in._grid);
 //	conformable(eg.fine_fermion_rb_grid, out._grid);
@@ -197,9 +248,6 @@ void shrink_fermion(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out){
         pokeLocalSite(s, out, eg.coarse_fermion_rb_grid_in_list[index]);
     }
 
-	watch.Stop();
-
-	std::cout << GridLogMessage << "Total fermion shrinking time : " << watch.Elapsed() << std::endl;
 }
 
 template<class vobj>
@@ -233,6 +281,7 @@ void expand_gauge_field_qlat(ExpandGrid& eg, const Lattice<vobj>& in, Lattice<vo
 	vectorizeFromLexOrdArray(out_lex, out);
 
 }
+
 // Double inner product
 template<class vobj>
 inline ComplexD local_inner_product(const Lattice<vobj> &left,const Lattice<vobj> &right) 
@@ -267,6 +316,50 @@ inline ComplexD local_inner_product(const Lattice<vobj> &left,const Lattice<vobj
 template<class vobj> 
 inline RealD local_norm_sqr(const Lattice<vobj> &arg){
   ComplexD nrm = local_inner_product(arg,arg);
+  return std::real(nrm); 
+}
+
+template<class vobj>
+inline ComplexD local_inner_product_center(ExpandGrid& eg, const Lattice<vobj> &left, const Lattice<vobj> &right) 
+{
+	TIMER("local_inner_product_center");
+	
+	typedef typename vobj::scalar_type scalar_type;
+	typedef typename vobj::vector_type vector_type;
+
+	int Nsimd = left._grid->Nsimd();
+	int num_threads;
+#pragma omp parallel
+{
+	num_threads = omp_get_num_threads();
+}	
+	std::vector<ComplexD> ssum(num_threads, 0.);
+
+#pragma omp parallel for
+	for(size_t index = 0; index < eg.fine_fermion_rb_grid_in_olist.size(); index++){
+		int thread_num = omp_get_thread_num();
+		scalar_type* lp = (scalar_type*)&left._odata[eg.fine_fermion_rb_grid_in_olist[index]];
+		scalar_type* rp = (scalar_type*)&right._odata[eg.fine_fermion_rb_grid_in_olist[index]];
+		for(size_t w = 0; w < sizeof(vobj)/sizeof(vector_type); w++){
+			size_t offset = eg.fine_fermion_rb_grid_in_ilist[index] + w * Nsimd;
+	//		size_t offset = eg.fine_fermion_rb_grid_in_ilist[index];
+			ssum[thread_num] += innerProduct(lp[offset], rp[offset]);
+		}
+	}
+
+	ComplexD ret = 0.;
+	for(int i = 0; i < num_threads; i++){
+		ret += ssum[i];
+	}
+
+//	right._grid->GlobalSum(ret);
+
+	return ret;
+}
+
+template<class vobj> 
+inline RealD local_norm_sqr_center(ExpandGrid& eg, const Lattice<vobj> &arg){
+  ComplexD nrm = local_inner_product_center(eg, arg, arg);
   return std::real(nrm); 
 }
 
@@ -314,7 +407,7 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 
 		{
 		TIMER("local_conjugate_gradient/linalg");
-		zero_boundary_fermion(eg, mmp);
+//		zero_boundary_fermion(eg, mmp);
 //		zero_boundary_fermion(eg, p); // not necessary?
         Mpk2 = std::real(local_inner_product(p, mmp));
         MdagMpk2 = local_norm_sqr(mmp); // Dag yes, (Mdag * M * p_k, Mdag * M * p_k)
@@ -331,14 +424,83 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 
 		p = r + beta * p;
 		}
-//        if ( true ){
-//			zero_boundary_fermion(eg, sol);
-//            RealD sol2 = local_norm_sqr(sol);
-//            if( src._grid->ThisRank() == 0 ){
-//                printf("local_conjugate_gradient_MdagM: local iter. #%04d on NODE #%04d: r2 = %.4E psi2 = %.4E alpha = %.4E beta = %.4E \n",
-//                        local_loop_count, src._grid->ThisRank(), rk2, sol2, alpha, beta);
-//            }
-//        }
+        if ( true ){
+			zero_boundary_fermion(eg, sol);
+            RealD sol2 = local_norm_sqr(sol);
+            if( src._grid->ThisRank() == 0 ){
+                printf("local_conjugate_gradient_MdagM: local iter. #%04d on NODE #%04d: r2 = %.4E psi2 = %.4E alpha = %.4E beta = %.4E \n",
+                        local_loop_count, src._grid->ThisRank(), rk2, sol2, alpha, beta);
+            }
+        }
+ 		
+	}
+	
+	WilsonFermion5DStatic::dirichlet = false;
+    
+	return 0;	
+}
+
+template<class F>
+int local_conjugate_gradient_MdagM_variant(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol, int iterations){
+
+	TIMER("local_CG_variant");
+	sol.checkerboard = src.checkerboard;
+//	conformable(src, sol);    
+
+	sol = zero;
+
+	static F mp(src);
+	static F mmp(src);
+	static F r(src);
+	static F p(src);
+
+	r = src;
+	p = src;
+
+//	RealD rk2 = local_norm_sqr_center(eg, r);
+	RealD rk2 = local_norm_sqr(r);
+	RealD Mpk2, MdagMpk2, alpha, beta, rkp12;
+	
+	WilsonFermion5DStatic::dirichlet = true;
+
+	for(int local_loop_count = 0; local_loop_count < iterations; local_loop_count++){
+		{
+		TIMER("local_CG_variant/dslash");
+		D.Op(p, mp);
+        D.AdjOp(mp, mmp);
+		}
+
+		{
+		TIMER("local_CG_variant/linalg");
+//		zero_boundary_fermion(eg, mmp);
+//		zero_boundary_fermion(eg, p); // not necessary?
+//		Mpk2 = std::real(local_inner_product_center(eg, p, mmp));
+        Mpk2 = std::real(local_inner_product(p, mmp));
+//      MdagMpk2 = local_norm_sqr_center(eg, mmp); // Dag yes, (Mdag * M * p_k, Mdag * M * p_k)
+        MdagMpk2 = local_norm_sqr(mmp); // Dag yes, (Mdag * M * p_k, Mdag * M * p_k)
+
+        alpha = rk2 / Mpk2; 
+
+		sol = sol + alpha * p;
+		r = r - alpha * mmp;
+//		zero_boundary_fermion(eg, r);
+//		rkp12 = local_norm_sqr_center(eg, r);
+		rkp12 = local_norm_sqr(r);
+
+		beta = rkp12 / rk2;
+		rk2 = rkp12;
+
+		p = r + beta * p;
+		}
+        if ( true ){
+			zero_boundary_fermion(eg, sol);
+//			RealD sol2 = local_norm_sqr_center(eg, sol);
+            RealD sol2 = local_norm_sqr(sol);
+            if( src._grid->ThisRank() == 0 ){
+                printf("local_conjugate_gradient_MdagM: local iter. #%04d on NODE #%04d: r2 = %.4E psi2 = %.4E alpha = %.4E beta = %.4E \n",
+                        local_loop_count, src._grid->ThisRank(), rk2, sol2, alpha, beta);
+            }
+        }
  		
 	}
 	
@@ -387,6 +549,8 @@ int MSP_conjugate_gradient(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOpera
 
 	for(size_t k = 0; k < max_iter; k++){
 
+		TIMER("MSPCG_iteration");
+
 		rkzk = std::real(innerProduct(r, z));
 
 		D.Op(p, mp);
@@ -397,8 +561,9 @@ int MSP_conjugate_gradient(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOpera
 		sol = sol + alpha * p; // x_k+1 = x_k + alpha * p_k
 		r = r - alpha * mmp; // r_k+1 = r_k - alpha * Ap_k
     
+//		expand_fermion_qlat(eg, r, f_r);
 		expand_fermion(eg, r, f_r);
-	    local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter); // z_k+1 = M^-1 * r_k+1
+	    local_conjugate_gradient_MdagM_variant(eg, fD, f_r, f_z, f_iter); // z_k+1 = M^-1 * r_k+1
 		shrink_fermion(eg, f_z, z);
 		
 		zkp1rkp1 = std::real(innerProduct(z, r));	
