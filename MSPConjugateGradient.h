@@ -377,7 +377,7 @@ void zero_boundary_fermion(ExpandGrid& eg, Lattice<sc>& in){
 }
 
 template<class F>
-int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol, int iterations){
+int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol, int iterations, RealD e = 0.){
 
 	TIMER("local_conjugate_gradient_MdagM");
 	sol.checkerboard = src.checkerboard;
@@ -396,18 +396,19 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 	RealD rk2 = local_norm_sqr(r);
 	RealD Mpk2, MdagMpk2, alpha, beta, rkp12;
 	
+    if( src._grid->ThisRank() == 0 ){
+        printf("local_CG_MdagM: BEFORE starting on NODE #%04d: r2 = %8.4e \n",
+                src._grid->ThisRank(), rk2);
+    }
+
 	WilsonFermion5DStatic::dirichlet = true;
 
 	for(int local_loop_count = 0; local_loop_count < iterations; local_loop_count++){
-		{
-		TIMER("local_conjugate_gradient/dslash");
 		D.Op(p, mp);
         D.AdjOp(mp, mmp);
-		}
+	//	mmp = mmp + e * p;
 
-		{
-		TIMER("local_conjugate_gradient/linalg");
-//		zero_boundary_fermion(eg, mmp);
+		zero_boundary_fermion(eg, mmp);
 //		zero_boundary_fermion(eg, p); // not necessary?
         Mpk2 = std::real(local_inner_product(p, mmp));
         MdagMpk2 = local_norm_sqr(mmp); // Dag yes, (Mdag * M * p_k, Mdag * M * p_k)
@@ -423,12 +424,12 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 		rk2 = rkp12;
 
 		p = r + beta * p;
-		}
-        if ( true ){
+        
+		if ( true ){
 			zero_boundary_fermion(eg, sol);
             RealD sol2 = local_norm_sqr(sol);
             if( src._grid->ThisRank() == 0 ){
-                printf("local_conjugate_gradient_MdagM: local iter. #%04d on NODE #%04d: r2 = %.4E psi2 = %.4E alpha = %.4E beta = %.4E \n",
+                printf("local_CG_MdagM: l.i. #%04d on NODE #%04d: r2 = %8.4e psi2 = %8.4e alpha = %8.4e beta = %8.4e \n",
                         local_loop_count, src._grid->ThisRank(), rk2, sol2, alpha, beta);
             }
         }
@@ -441,7 +442,7 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 }
 
 template<class F>
-int local_conjugate_gradient_MdagM_variant(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol, int iterations){
+int local_conjugate_gradient_MdagM_variant(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol, int iterations, RealD e = 0.){
 
 	TIMER("local_CG_variant");
 	sol.checkerboard = src.checkerboard;
@@ -468,11 +469,12 @@ int local_conjugate_gradient_MdagM_variant(ExpandGrid& eg, LinearOperatorBase<F>
 		TIMER("local_CG_variant/dslash");
 		D.Op(p, mp);
         D.AdjOp(mp, mmp);
+		mmp = mmp + e * p;
 		}
 
 		{
 		TIMER("local_CG_variant/linalg");
-//		zero_boundary_fermion(eg, mmp);
+		zero_boundary_fermion(eg, mmp);
 //		zero_boundary_fermion(eg, p); // not necessary?
 //		Mpk2 = std::real(local_inner_product_center(eg, p, mmp));
         Mpk2 = std::real(local_inner_product(p, mmp));
@@ -510,7 +512,8 @@ int local_conjugate_gradient_MdagM_variant(ExpandGrid& eg, LinearOperatorBase<F>
 }
 
 template<class F>
-int MSP_conjugate_gradient(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOperatorBase<F>& fD, const F& src, F& sol, RealD percent, int f_iter, size_t max_iter=50000)
+int MSP_conjugate_gradient(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOperatorBase<F>& fD, const F& src, F& sol, 
+								RealD percent, int f_iter, size_t max_iter = 50000, RealD e = 0.)
 {
 
 	RealD alpha, beta, rkzk, pkApk, zkp1rkp1, zkrk;
@@ -542,7 +545,7 @@ int MSP_conjugate_gradient(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOpera
 	}
 
 	expand_fermion(eg, r, f_r);
-	local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
+	local_conjugate_gradient_MdagM_variant(eg, fD, f_r, f_z, f_iter, e); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
 	shrink_fermion(eg, f_z, z);
 
 	p = z; // p0 = z0
@@ -563,7 +566,8 @@ int MSP_conjugate_gradient(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOpera
     
 //		expand_fermion_qlat(eg, r, f_r);
 		expand_fermion(eg, r, f_r);
-	    local_conjugate_gradient_MdagM_variant(eg, fD, f_r, f_z, f_iter); // z_k+1 = M^-1 * r_k+1
+//	    local_conjugate_gradient_MdagM_variant(eg, fD, f_r, f_z, f_iter, e); // z_k+1 = M^-1 * r_k+1
+	    local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter); // z_k+1 = M^-1 * r_k+1
 		shrink_fermion(eg, f_z, z);
 		
 		zkp1rkp1 = std::real(innerProduct(z, r));	
@@ -575,7 +579,7 @@ int MSP_conjugate_gradient(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOpera
 
 		if ( true ){
 		    if(not src._grid->ThisRank()){
-				printf("MSPCG/iter.count/r2/target r2/: %05d %8.4e %8.4e\n", k, r2, tgt_r2);
+				printf("MSPCG/iter.count/r2/target_r2/%%/target_%%: %05d %8.4e %8.4e %8.4e %8.4e\n", k, r2, tgt_r2, std::sqrt(r2/src_sqr), percent);
 			}
 		}
 
