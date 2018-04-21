@@ -442,7 +442,7 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 }
 
 template<class F>
-int local_conjugate_gradient_MdagM_variant(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol, int iterations, RealD e = 0.){
+int local_CG_MdagM_even_odd(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol, int iterations, int eo){
 
 	TIMER("local_CG_variant");
 	sol.checkerboard = src.checkerboard;
@@ -465,15 +465,9 @@ int local_conjugate_gradient_MdagM_variant(ExpandGrid& eg, LinearOperatorBase<F>
 	WilsonFermion5DStatic::dirichlet = true;
 
 	for(int local_loop_count = 0; local_loop_count < iterations; local_loop_count++){
-		{
-		TIMER("local_CG_variant/dslash");
 		D.Op(p, mp);
         D.AdjOp(mp, mmp);
-		mmp = mmp + e * p;
-		}
 
-		{
-		TIMER("local_CG_variant/linalg");
 		zero_boundary_fermion(eg, mmp);
 //		zero_boundary_fermion(eg, p); // not necessary?
 //		Mpk2 = std::real(local_inner_product_center(eg, p, mmp));
@@ -493,8 +487,8 @@ int local_conjugate_gradient_MdagM_variant(ExpandGrid& eg, LinearOperatorBase<F>
 		rk2 = rkp12;
 
 		p = r + beta * p;
-		}
-        if ( true ){
+        
+		if ( true ){
 			zero_boundary_fermion(eg, sol);
 //			RealD sol2 = local_norm_sqr_center(eg, sol);
             RealD sol2 = local_norm_sqr(sol);
@@ -507,7 +501,11 @@ int local_conjugate_gradient_MdagM_variant(ExpandGrid& eg, LinearOperatorBase<F>
 	}
 	
 	WilsonFermion5DStatic::dirichlet = false;
-    
+	if( (src._grid->ThisProcessorCoor()[0]+src._grid->ThisProcessorCoor()[1]+src._grid->ThisProcessorCoor()[2]+src._grid->ThisProcessorCoor()[3]) % 2 != eo)
+		sol = zero;
+   	
+	norm2(sol);
+
 	return 0;	
 }
 
@@ -566,11 +564,12 @@ int MSP_conjugate_gradient(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOpera
     
 //		expand_fermion_qlat(eg, r, f_r);
 		expand_fermion(eg, r, f_r);
-//	    local_conjugate_gradient_MdagM_variant(eg, fD, f_r, f_z, f_iter, e); // z_k+1 = M^-1 * r_k+1
-	    local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter); // z_k+1 = M^-1 * r_k+1
+	    local_conjugate_gradient_MdagM_variant(eg, fD, f_r, f_z, f_iter, e); // z_k+1 = M^-1 * r_k+1
+//	    local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter); // z_k+1 = M^-1 * r_k+1
 		shrink_fermion(eg, f_z, z);
 		
 		zkp1rkp1 = std::real(innerProduct(z, r));	
+//		zkp1rkp1 = -alpha*std::real(innerProduct(z, mmp));	
 		
 		beta = zkp1rkp1 / rkzk;
 		p = z + beta * p; // p_k+1 = z_k+1 + beta * p_k
@@ -607,4 +606,156 @@ int MSP_conjugate_gradient(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOpera
 	return -1;
 }
 
+template<class F>
+int DD_CG(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOperatorBase<F>& fD, const F& src, F& sol, 
+					RealD percent, int f_iter, size_t max_iter = 50000)
+{
+
+	RealD alpha, beta, rkzk, pkApk, zkp1rkp1, zkrk;
+	RealD r2, src_sqr, tgt_r2;
+
+	F p(src);
+	F mp(src);
+	F mmp(src);
+	F r(src);
+	F z(src);
+
+	F f_r(eg.fine_fermion_rb_grid);
+	F f_z(eg.fine_fermion_rb_grid);
+
+// DD specifically
+	F f_z2(eg.fine_fermion_rb_grid);
+	
+	F f_tmp(eg.fine_fermion_rb_grid);
+	F f_tmp2(eg.fine_fermion_rb_grid);
+	
+	F r_tmp(src);
+	F r_tmp2(src);
+
+	D.Op(sol, mp);
+	D.AdjOp(mp, mmp);
+
+	r = src - mmp;
+	r2 = norm2(r);
+	
+	src_sqr = norm2(src);
+	tgt_r2  = src_sqr * percent * percent;
+
+	if(r2 < tgt_r2){
+		if(not src._grid->ThisRank()){
+			printf("MSP_conjugate_gradient() CONVERGED at iteration 0;\n");
+		}
+		return 0;
+	}
+
+	expand_fermion(eg, r, f_r);
+	
+	local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
+
+// --- DD
+	local_CG_MdagM_even_odd(eg, fD, f_r, f_tmp, f_iter, 0);
+	shrink_fermion(eg, f_tmp, r_tmp);
+	
+	WilsonFermion5DStatic::dirichlet = true;
+	fD.Op(f_tmp, f_tmp2);
+	fD.AdjOp(f_tmp2, f_tmp);
+	WilsonFermion5DStatic::dirichlet = false;
+	
+	D.Op(r_tmp, r_tmp2);
+	D.AdjOp(r_tmp2, r_tmp);
+
+	expand_fermion(eg, r_tmp, f_tmp2);
+
+	f_tmp = f_tmp2 - f_tmp;
+	zero_boundary_fermion(eg, f_tmp);
+
+	local_CG_MdagM_even_odd(eg, fD, f_tmp, f_z2, f_iter, 1);
+
+	f_z = f_z - f_z2;
+// --- DD
+
+	shrink_fermion(eg, f_z, z);
+
+	p = z; // p0 = z0
+
+	for(size_t k = 0; k < max_iter; k++){
+
+		TIMER("MSPCG_iteration");
+
+		rkzk = std::real(innerProduct(r, z));
+
+		D.Op(p, mp);
+		D.AdjOp(mp, mmp);
+		pkApk = std::real(innerProduct(p, mmp));
+		alpha = rkzk / pkApk; // alpha_k
+
+		sol = sol + alpha * p; // x_k+1 = x_k + alpha * p_k
+		r = r - alpha * mmp; // r_k+1 = r_k - alpha * Ap_k
+    
+//		expand_fermion_qlat(eg, r, f_r);
+		expand_fermion(eg, r, f_r);
+//	    local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter); // z_k+1 = M^-1 * r_k+1
+
+// --- DD
+		local_CG_MdagM_even_odd(eg, fD, f_r, f_tmp, f_iter, 0);
+		shrink_fermion(eg, f_tmp, r_tmp);
+		
+//		WilsonFermion5DStatic::dirichlet = true;
+//		fD.Op(f_tmp, f_tmp2);
+//		fD.AdjOp(f_tmp2, f_tmp);
+//		WilsonFermion5DStatic::dirichlet = false;
+	
+		D.Op(r_tmp, r_tmp2);
+		D.AdjOp(r_tmp2, r_tmp);
+
+		expand_fermion(eg, r_tmp, f_tmp2);
+	
+		f_r = f_r - f_tmp2;
+		zero_boundary_fermion(eg, f_r);
+	
+		local_CG_MdagM_even_odd(eg, fD, f_r, f_tmp2, f_iter, 1);
+
+		f_z = f_tmp + f_tmp2;
+// --- DD
+
+//	    local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter); // z_k+1 = M^-1 * r_k+1
+		shrink_fermion(eg, f_z, z);
+		
+//		zkp1rkp1 = std::real(innerProduct(z, r));	
+		zkp1rkp1 = -alpha*std::real(innerProduct(z, mmp));	
+		
+		beta = zkp1rkp1 / rkzk;
+		p = z + beta * p; // p_k+1 = z_k+1 + beta * p_k
+	
+		r2 = norm2(r);
+
+		if ( true ){
+		    if(not src._grid->ThisRank()){
+				printf("MSPCG/iter.count/r2/target_r2/%%/target_%%: %05d %8.4e %8.4e %8.4e %8.4e\n", k, r2, tgt_r2, std::sqrt(r2/src_sqr), percent);
+			}
+		}
+
+		// Stopping condition
+		if ( r2 < tgt_r2 ) { 
+		    
+			D.Op(sol, mp);
+		    D.AdjOp(mp, mmp);
+		    r = src - mmp;
+		    r2 = norm2(r);	
+            
+			if(not src._grid->ThisRank()){
+                printf("MSPCG CONVERGED at iteration %05d with true r2 = %8.4e: target r2 = %8.4e\n", k, r2, tgt_r2);
+            }
+			
+			return k;
+
+		}
+
+	}
+    if(not src._grid->ThisRank()){
+        printf("MSPCG has NOT CONVERGED after iteration %05d\n", max_iter);
+    }
+	
+	return -1;
+}
 #endif

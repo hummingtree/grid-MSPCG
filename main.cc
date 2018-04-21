@@ -208,14 +208,15 @@ int main(int argc, char** argv) {
 //	CGTimer.Stop();
 //	std::cout << GridLogMessage << "Total CG time : " << CGTimer.Elapsed() << std::endl;
 
-	int local_iter = 24;
+	int local_iter = 12;
 	RealD local_e  = 0.;
 	std::cout << GridLogMessage << "MSPCG local iteration : " << local_iter << std::endl;
 	std::cout << GridLogMessage << "MSPCG local mass      : " << fD_mass << std::endl;
 	std::cout << GridLogMessage << "MSPCG local e         : " << local_e << std::endl;
 	
 	MSPCGTimer.Start();
-	MSP_conjugate_gradient(eg, HermOpEO, expandedHermOpEO, Mdag_src_o, y, 1e-7, local_iter, 50000, local_e);
+//	MSP_conjugate_gradient(eg, HermOpEO, expandedHermOpEO, Mdag_src_o, y, 1e-7, local_iter, 50000, local_e);
+	DD_CG(eg, HermOpEO, expandedHermOpEO, Mdag_src_o, y, 1e-7, local_iter, 50000);
 	MSPCGTimer.Stop();
 	std::cout << GridLogMessage << "Total MSPCG time : " << MSPCGTimer.Elapsed() << std::endl;
 
