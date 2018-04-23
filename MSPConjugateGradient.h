@@ -650,28 +650,31 @@ int DD_CG(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOperatorBase<F>& fD, c
 
 	expand_fermion(eg, r, f_r);
 	
-	local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
+//	local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
 
 // --- DD
-	local_CG_MdagM_even_odd(eg, fD, f_r, f_tmp, f_iter, 0);
-	shrink_fermion(eg, f_tmp, r_tmp);
+		
+//	local_conjugate_gradient_MdagM(eg, fD, f_r, f_tmp, f_iter);
+	local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter);
+//	shrink_fermion(eg, f_tmp, r_tmp);
 	
-	WilsonFermion5DStatic::dirichlet = true;
-	fD.Op(f_tmp, f_tmp2);
-	fD.AdjOp(f_tmp2, f_tmp);
-	WilsonFermion5DStatic::dirichlet = false;
+//	WilsonFermion5DStatic::dirichlet = true;
+//	fD.Op(f_tmp, f_tmp2);
+//	fD.AdjOp(f_tmp2, f_tmp);
+//	WilsonFermion5DStatic::dirichlet = false;
 	
-	D.Op(r_tmp, r_tmp2);
-	D.AdjOp(r_tmp2, r_tmp);
+//	D.Op(r_tmp, r_tmp2);
+//	D.AdjOp(r_tmp2, r_tmp);
+//
+//	expand_fermion(eg, r_tmp, f_tmp2);
+//	
+//	f_r = f_r - f_tmp2;
+//	zero_boundary_fermion(eg, f_r);
+//	
+//	local_CG_MdagM_even_odd(eg, fD, f_r, f_tmp2, f_iter, 1);
+//
+//	f_z = f_tmp + f_tmp2;
 
-	expand_fermion(eg, r_tmp, f_tmp2);
-
-	f_tmp = f_tmp2 - f_tmp;
-	zero_boundary_fermion(eg, f_tmp);
-
-	local_CG_MdagM_even_odd(eg, fD, f_tmp, f_z2, f_iter, 1);
-
-	f_z = f_z - f_z2;
 // --- DD
 
 	shrink_fermion(eg, f_z, z);
@@ -697,25 +700,26 @@ int DD_CG(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOperatorBase<F>& fD, c
 //	    local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter); // z_k+1 = M^-1 * r_k+1
 
 // --- DD
-		local_CG_MdagM_even_odd(eg, fD, f_r, f_tmp, f_iter, 0);
-		shrink_fermion(eg, f_tmp, r_tmp);
+//		local_CG_MdagM_even_odd(eg, fD, f_r, f_tmp, f_iter, 0);
+		local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter);
+//		shrink_fermion(eg, f_tmp, r_tmp);
 		
 //		WilsonFermion5DStatic::dirichlet = true;
 //		fD.Op(f_tmp, f_tmp2);
 //		fD.AdjOp(f_tmp2, f_tmp);
 //		WilsonFermion5DStatic::dirichlet = false;
 	
-		D.Op(r_tmp, r_tmp2);
-		D.AdjOp(r_tmp2, r_tmp);
-
-		expand_fermion(eg, r_tmp, f_tmp2);
-	
-		f_r = f_r - f_tmp2;
-		zero_boundary_fermion(eg, f_r);
-	
-		local_CG_MdagM_even_odd(eg, fD, f_r, f_tmp2, f_iter, 1);
-
-		f_z = f_tmp + f_tmp2;
+//		D.Op(r_tmp, r_tmp2);
+//		D.AdjOp(r_tmp2, r_tmp);
+//
+//		expand_fermion(eg, r_tmp, f_tmp2);
+//	
+//		f_r = f_r - f_tmp2;
+//		zero_boundary_fermion(eg, f_r);
+//	
+//		local_CG_MdagM_even_odd(eg, fD, f_r, f_tmp2, f_iter, 1);
+//
+//		f_z = f_tmp + f_tmp2;
 // --- DD
 
 //	    local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter); // z_k+1 = M^-1 * r_k+1
