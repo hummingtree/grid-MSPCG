@@ -49,6 +49,12 @@ public:
 	GridRedBlackCartesian* fine_gauge_rb_grid; //
 	GridRedBlackCartesian* coarse_fermion_rb_grid;
 	GridRedBlackCartesian* fine_fermion_rb_grid;
+	
+	GridCartesian* fine_gauge_grid_F;
+	GridCartesian* fine_fermion_grid_F;
+	GridRedBlackCartesian* fine_gauge_rb_grid_F;
+	GridRedBlackCartesian* fine_fermion_rb_grid_F;
+	
 	int expansion;
 
 	std::vector<std::vector<int>> fine_fermion_rb_grid_in_list;
@@ -71,17 +77,23 @@ public:
 
 		std::vector<int> simd_layout = coarse_gauge_grid->_simd_layout;
     	std::vector<int> mpi_layout  = coarse_gauge_grid->_processors;
+    	std::vector<int> mpi_layout_no_comm(4, 1); // no comm
     	std::vector<int> latt_size   = coarse_gauge_grid->_fdimensions;
     	
 		std::vector<int> expanded_latt_size = latt_size;
     	for(int i = 0; i < 4; i++){
-       		expanded_latt_size[i] = latt_size[i] + 2*expansion*mpi_layout[i];
+       		expanded_latt_size[i] = latt_size[i]/mpi_layout[i] + 2*expansion;
     	}
 
-		fine_gauge_grid = SpaceTimeGrid::makeFourDimGrid(expanded_latt_size, simd_layout, mpi_layout);
+		fine_gauge_grid = new GridCartesian(expanded_latt_size, simd_layout, mpi_layout_no_comm, *coarse_gauge_grid);
 		fine_gauge_rb_grid = SpaceTimeGrid::makeFourDimRedBlackGrid(fine_gauge_grid);
 		fine_fermion_grid = SpaceTimeGrid::makeFiveDimGrid(Ls, fine_gauge_grid);
 		fine_fermion_rb_grid = SpaceTimeGrid::makeFiveDimRedBlackGrid(Ls, fine_gauge_grid);
+		
+		fine_gauge_grid_F = new GridCartesian(expanded_latt_size, GridDefaultSimd(Nd,vComplexF::Nsimd()), mpi_layout_no_comm, *coarse_gauge_grid);
+		fine_gauge_rb_grid_F = SpaceTimeGrid::makeFourDimRedBlackGrid(fine_gauge_grid_F);
+		fine_fermion_grid_F = SpaceTimeGrid::makeFiveDimGrid(Ls, fine_gauge_grid_F);
+		fine_fermion_rb_grid_F = SpaceTimeGrid::makeFiveDimRedBlackGrid(Ls, fine_gauge_grid_F);
 
 		fine_fermion_rb_grid_in_list.resize(0);
 		fine_fermion_rb_grid_in_olist.resize(0);
@@ -174,7 +186,7 @@ void expand_fermion(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out){
 	parallel_for(size_t index = 0; index < eg.fine_fermion_rb_grid_in_list.size(); index++){
         sobj s;
         peekLocalSite(s, in, eg.coarse_fermion_rb_grid_in_list[index]);
-        pokeLocalSite(s, out, eg.fine_fermion_rb_grid_in_list[index]);
+		pokeLocalSite(s, out, eg.fine_fermion_rb_grid_in_list[index]);
     }
 
 	parallel_for(size_t index = 0; index < eg.fine_fermion_rb_grid_out_list.size(); index++){
@@ -245,7 +257,7 @@ void shrink_fermion(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out){
 	parallel_for(size_t index = 0; index < eg.coarse_fermion_rb_grid_in_list.size(); index++){
         sobj s;
         peekLocalSite(s, in, eg.fine_fermion_rb_grid_in_list[index]);
-        pokeLocalSite(s, out, eg.coarse_fermion_rb_grid_in_list[index]);
+		pokeLocalSite(s, out, eg.coarse_fermion_rb_grid_in_list[index]);
     }
 
 }
@@ -385,10 +397,10 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 
 	sol = zero;
 
-	static F mp(src);
-	static F mmp(src);
-	static F r(src);
-	static F p(src);
+	F mp(src);
+	F mmp(src);
+	F r(src);
+	F p(src);
 
 	r = src;
 	p = src;
@@ -408,7 +420,7 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
         D.AdjOp(mp, mmp);
 	//	mmp = mmp + e * p;
 
-		zero_boundary_fermion(eg, mmp);
+//		zero_boundary_fermion(eg, mmp);
 //		zero_boundary_fermion(eg, p); // not necessary?
         Mpk2 = std::real(local_inner_product(p, mmp));
         MdagMpk2 = local_norm_sqr(mmp); // Dag yes, (Mdag * M * p_k, Mdag * M * p_k)
@@ -429,8 +441,8 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 			zero_boundary_fermion(eg, sol);
             RealD sol2 = local_norm_sqr(sol);
             if( src._grid->ThisRank() == 0 ){
-                printf("local_CG_MdagM: l.i. #%04d on NODE #%04d: r2 = %8.4e psi2 = %8.4e alpha = %8.4e beta = %8.4e \n",
-                        local_loop_count, src._grid->ThisRank(), rk2, sol2, alpha, beta);
+                printf("local_CG_MdagM: l.i. #%04d on NODE #%04d: r2 = %8.4e psi2 = %8.4e alpha = %8.4e beta = %8.4e Mpk2 = %8.4e \n",
+                        local_loop_count, src._grid->ThisRank(), rk2, sol2, alpha, beta, Mpk2);
             }
         }
  		
@@ -442,7 +454,8 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 }
 
 template<class F>
-int local_CG_MdagM_even_odd(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol, int iterations, int eo){
+int local_CG_MdagM_even_odd(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol, int iterations, int eo)
+{
 
 	TIMER("local_CG_variant");
 	sol.checkerboard = src.checkerboard;
@@ -543,7 +556,7 @@ int MSP_conjugate_gradient(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOpera
 	}
 
 	expand_fermion(eg, r, f_r);
-	local_conjugate_gradient_MdagM_variant(eg, fD, f_r, f_z, f_iter, e); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
+	local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter, e); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
 	shrink_fermion(eg, f_z, z);
 
 	p = z; // p0 = z0
@@ -564,8 +577,116 @@ int MSP_conjugate_gradient(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOpera
     
 //		expand_fermion_qlat(eg, r, f_r);
 		expand_fermion(eg, r, f_r);
-	    local_conjugate_gradient_MdagM_variant(eg, fD, f_r, f_z, f_iter, e); // z_k+1 = M^-1 * r_k+1
+	    local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter, e); // z_k+1 = M^-1 * r_k+1
 //	    local_conjugate_gradient_MdagM(eg, fD, f_r, f_z, f_iter); // z_k+1 = M^-1 * r_k+1
+		shrink_fermion(eg, f_z, z);
+		
+		zkp1rkp1 = std::real(innerProduct(z, r));	
+//		zkp1rkp1 = -alpha*std::real(innerProduct(z, mmp));	
+		
+		beta = zkp1rkp1 / rkzk;
+		p = z + beta * p; // p_k+1 = z_k+1 + beta * p_k
+	
+		r2 = norm2(r);
+
+		if ( true ){
+		    if(not src._grid->ThisRank()){
+				printf("MSPCG/iter.count/r2/target_r2/%%/target_%%: %05d %8.4e %8.4e %8.4e %8.4e\n", k, r2, tgt_r2, std::sqrt(r2/src_sqr), percent);
+			}
+		}
+
+		// Stopping condition
+		if ( r2 < tgt_r2 ) { 
+		    
+			D.Op(sol, mp);
+		    D.AdjOp(mp, mmp);
+		    r = src - mmp;
+		    r2 = norm2(r);	
+            
+			if(not src._grid->ThisRank()){
+                printf("MSPCG CONVERGED at iteration %05d with true r2 = %8.4e: target r2 = %8.4e\n", k, r2, tgt_r2);
+            }
+			
+			return k;
+
+		}
+
+	}
+    if(not src._grid->ThisRank()){
+        printf("MSPCG has NOT CONVERGED after iteration %05d\n", max_iter);
+    }
+	
+	return -1;
+}
+
+template<class F, class G>
+int MSPCG_half(ExpandGrid& eg, LinearOperatorBase<G>& D, LinearOperatorBase<F>& fD, const G& src, G& sol, 
+								RealD percent, int f_iter, size_t max_iter = 50000)
+{
+
+	RealD alpha, beta, rkzk, pkApk, zkp1rkp1, zkrk;
+	RealD r2, src_sqr, tgt_r2;
+
+	G p(src);
+	G mp(src);
+	G mmp(src);
+	G r(src);
+	G z(src);
+
+	G f_r(eg.fine_fermion_rb_grid);
+	G f_z(eg.fine_fermion_rb_grid);
+	
+	F f_r_F(eg.fine_fermion_rb_grid_F);
+	F f_z_F(eg.fine_fermion_rb_grid_F);
+
+	D.Op(sol, mp);
+	D.AdjOp(mp, mmp);
+
+	r = src - mmp;
+	r2 = norm2(r);
+	
+	src_sqr = norm2(src);
+	tgt_r2  = src_sqr * percent * percent;
+
+	if(r2 < tgt_r2){
+		if(not src._grid->ThisRank()){
+			printf("MSP_conjugate_gradient() CONVERGED at iteration 0;\n");
+		}
+		return 0;
+	}
+
+	expand_fermion(eg, r, f_r);
+	precisionChange(f_r_F, f_r);
+	local_conjugate_gradient_MdagM(eg, fD, f_r_F, f_z_F, f_iter); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
+	if(not src._grid->ThisRank()){
+		printf("f_z_F = %8.4e;\n", local_norm_sqr(f_z_F));
+	}
+	precisionChange(f_z, f_z_F);
+	if(not src._grid->ThisRank()){
+		printf("f_z = %8.4e;\n", local_norm_sqr(f_z));
+	}
+	shrink_fermion(eg, f_z, z);
+
+	p = z; // p0 = z0
+
+	for(size_t k = 0; k < max_iter; k++){
+
+		TIMER("MSPCG_iteration");
+
+		rkzk = std::real(innerProduct(r, z));
+
+		D.Op(p, mp);
+		D.AdjOp(mp, mmp);
+		pkApk = std::real(innerProduct(p, mmp));
+		alpha = rkzk / pkApk; // alpha_k
+
+		sol = sol + alpha * p; // x_k+1 = x_k + alpha * p_k
+		r = r - alpha * mmp; // r_k+1 = r_k - alpha * Ap_k
+    
+		expand_fermion(eg, r, f_r);
+		precisionChange(f_r_F, f_r);
+		local_conjugate_gradient_MdagM(eg, fD, f_r_F, f_z_F, f_iter); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
+		precisionChange(f_z, f_z_F);
 		shrink_fermion(eg, f_z, z);
 		
 		zkp1rkp1 = std::real(innerProduct(z, r));	
