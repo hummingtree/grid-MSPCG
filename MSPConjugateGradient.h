@@ -35,75 +35,81 @@ directory
 
 #include <qlat/qlat.h>
 
+#include "precision.h"
+
 using namespace std;
 using namespace Grid;
 using namespace Grid::QCD;
 
 class ExpandGrid{
 public:
-	GridCartesian* coarse_gauge_grid;
-	GridCartesian* fine_gauge_grid;
-	GridCartesian* coarse_fermion_grid;
-	GridCartesian* fine_fermion_grid; //
-	GridRedBlackCartesian* coarse_gauge_rb_grid; //
-	GridRedBlackCartesian* fine_gauge_rb_grid; //
-	GridRedBlackCartesian* coarse_fermion_rb_grid;
-	GridRedBlackCartesian* fine_fermion_rb_grid;
+	GridCartesian* cUGrid;
+	GridCartesian* fUGrid;
+	GridCartesian* cFGrid;
+	GridCartesian* fFGrid; //
+	GridRedBlackCartesian* cUrbGrid; //
+	GridRedBlackCartesian* fUrbGrid; //
+	GridRedBlackCartesian* cFrbGrid;
+	GridRedBlackCartesian* fFrbGrid;
 	
-	GridCartesian* fine_gauge_grid_F;
-	GridCartesian* fine_fermion_grid_F;
-	GridRedBlackCartesian* fine_gauge_rb_grid_F;
-	GridRedBlackCartesian* fine_fermion_rb_grid_F;
+	GridCartesian* fUGrid_F;
+	GridCartesian* fFGrid_F;
+	GridRedBlackCartesian* fUrbGrid_F;
+	GridRedBlackCartesian* fFrbGrid_F;
 	
 	int expansion;
 
-	std::vector<std::vector<int>> fine_fermion_rb_grid_in_list;
-	std::vector<std::vector<int>> coarse_fermion_rb_grid_in_list;
-	std::vector<std::vector<int>> fine_fermion_rb_grid_out_list;
+	std::vector<std::vector<int>> fFrbGrid_in_list;
+	std::vector<std::vector<int>> cFrbGrid_in_list;
+	std::vector<std::vector<int>> fFrbGrid_out_list;
 
-	std::vector<size_t> fine_fermion_rb_grid_in_olist;
-	std::vector<size_t> fine_fermion_rb_grid_in_ilist;
+	std::vector<size_t> fFrbGrid_in_olist;
+	std::vector<size_t> fFrbGrid_in_ilist;
 	
-	std::vector<std::vector<int>> fine_gauge_grid_in_list;
-	std::vector<std::vector<int>> coarse_gauge_grid_in_list;
+	std::vector<std::vector<int>> fUGrid_in_list;
+	std::vector<std::vector<int>> cUGrid_in_list;
 
-	inline void init(GridCartesian* _coarse_gauge_grid, int _expansion, int Ls){
+	inline void init(GridCartesian* _cUGrid, int _expansion, int Ls){
 
 		expansion = _expansion;		
-		coarse_gauge_grid = _coarse_gauge_grid;
-		coarse_gauge_rb_grid = SpaceTimeGrid::makeFourDimRedBlackGrid(coarse_gauge_grid);
-		coarse_fermion_grid = SpaceTimeGrid::makeFiveDimGrid(Ls, coarse_gauge_grid);
-		coarse_fermion_rb_grid = SpaceTimeGrid::makeFiveDimRedBlackGrid(Ls, coarse_gauge_grid);
+		cUGrid = _cUGrid;
+		cUrbGrid = SpaceTimeGrid::makeFourDimRedBlackGrid(cUGrid);
+		cFGrid = SpaceTimeGrid::makeFiveDimGrid(Ls, cUGrid);
+		cFrbGrid = SpaceTimeGrid::makeFiveDimRedBlackGrid(Ls, cUGrid);
 
-		std::vector<int> simd_layout = coarse_gauge_grid->_simd_layout;
-    	std::vector<int> mpi_layout  = coarse_gauge_grid->_processors;
+		std::vector<int> simd_layout = cUGrid->_simd_layout;
+    	std::vector<int> mpi_layout  = cUGrid->_processors;
     	std::vector<int> mpi_layout_no_comm(4, 1); // no comm
-    	std::vector<int> latt_size   = coarse_gauge_grid->_fdimensions;
+    	std::vector<int> latt_size   = cUGrid->_fdimensions;
     	
 		std::vector<int> expanded_latt_size = latt_size;
     	for(int i = 0; i < 4; i++){
-       		expanded_latt_size[i] = latt_size[i]/mpi_layout[i] + 2*expansion;
-    	}
+			expanded_latt_size[i] = latt_size[i]/mpi_layout[i] + 2*expansion;
+//   		expanded_latt_size[i] = latt_size[i] + 2*expansion*mpi_layout[i];
+		}
 
-		fine_gauge_grid = new GridCartesian(expanded_latt_size, simd_layout, mpi_layout_no_comm, *coarse_gauge_grid);
-		fine_gauge_rb_grid = SpaceTimeGrid::makeFourDimRedBlackGrid(fine_gauge_grid);
-		fine_fermion_grid = SpaceTimeGrid::makeFiveDimGrid(Ls, fine_gauge_grid);
-		fine_fermion_rb_grid = SpaceTimeGrid::makeFiveDimRedBlackGrid(Ls, fine_gauge_grid);
+		fUGrid = new GridCartesian(expanded_latt_size, simd_layout, mpi_layout_no_comm, *cUGrid);
+//		fUGrid = SpaceTimeGrid::makeFourDimGrid(expanded_latt_size, simd_layout, mpi_layout);
+		fUrbGrid = SpaceTimeGrid::makeFourDimRedBlackGrid(fUGrid);
+		fFGrid = SpaceTimeGrid::makeFiveDimGrid(Ls, fUGrid);
+		fFrbGrid = SpaceTimeGrid::makeFiveDimRedBlackGrid(Ls, fUGrid);
 		
-		fine_gauge_grid_F = new GridCartesian(expanded_latt_size, GridDefaultSimd(Nd,vComplexF::Nsimd()), mpi_layout_no_comm, *coarse_gauge_grid);
-		fine_gauge_rb_grid_F = SpaceTimeGrid::makeFourDimRedBlackGrid(fine_gauge_grid_F);
-		fine_fermion_grid_F = SpaceTimeGrid::makeFiveDimGrid(Ls, fine_gauge_grid_F);
-		fine_fermion_rb_grid_F = SpaceTimeGrid::makeFiveDimRedBlackGrid(Ls, fine_gauge_grid_F);
+		fUGrid_F = new GridCartesian(expanded_latt_size, GridDefaultSimd(Nd,vComplexF::Nsimd()), mpi_layout_no_comm, *cUGrid);
+//		fUGrid_F = SpaceTimeGrid::makeFourDimGrid(expanded_latt_size, GridDefaultSimd(Nd,vComplexF::Nsimd()), mpi_layout);
+		fUrbGrid_F = SpaceTimeGrid::makeFourDimRedBlackGrid(fUGrid_F);
+		fFGrid_F = SpaceTimeGrid::makeFiveDimGrid(Ls, fUGrid_F);
+		fFrbGrid_F = SpaceTimeGrid::makeFiveDimRedBlackGrid(Ls, fUGrid_F);
 
-		fine_fermion_rb_grid_in_list.resize(0);
-		fine_fermion_rb_grid_in_olist.resize(0);
-		fine_fermion_rb_grid_in_ilist.resize(0);
-		fine_fermion_rb_grid_out_list.resize(0);
+		fFrbGrid_in_list.resize(0);
+		cFrbGrid_in_list.resize(0);
+		fFrbGrid_in_olist.resize(0);
+		fFrbGrid_in_ilist.resize(0);
+		fFrbGrid_out_list.resize(0);
 
 // fermion copy list. Maybe by directly get index for memory we will get a better performance?
-		for(int index = 0; index < fine_fermion_rb_grid->lSites(); index++){
+		for(int index = 0; index < fFrbGrid->lSites(); index++){
 			std::vector<int> lcoor_out(5), lcoor_in(5), full_lcoor_out(5), full_lcoor_in(5);
-			fine_fermion_rb_grid->LocalIndexToLocalCoor(index, lcoor_out);
+			fFrbGrid->LocalIndexToLocalCoor(index, lcoor_out);
 
 			lcoor_in[0] = lcoor_out[0]; // s: Ls
 			lcoor_in[1] = lcoor_out[1] - expansion/2; // x is the _checker_dim
@@ -121,49 +127,49 @@ public:
 				full_lcoor_out[1] = lcoor_out[1]*2+cb;
 				full_lcoor_in[1] = lcoor_in[1]*2+cb;
 
-				if(1 != fine_fermion_rb_grid->CheckerBoard(full_lcoor_out)) continue;
+				if(1 != fFrbGrid->CheckerBoard(full_lcoor_out)) continue;
 
 
-				if( lcoor_in[1] >= 0 and lcoor_in[1] < coarse_fermion_rb_grid->_ldimensions[1] and
-					lcoor_in[2] >= 0 and lcoor_in[2] < coarse_fermion_rb_grid->_ldimensions[2] and
-					lcoor_in[3] >= 0 and lcoor_in[3] < coarse_fermion_rb_grid->_ldimensions[3] and
-					lcoor_in[4] >= 0 and lcoor_in[4] < coarse_fermion_rb_grid->_ldimensions[4]){
+				if( lcoor_in[1] >= 0 and lcoor_in[1] < cFrbGrid->_ldimensions[1] and
+					lcoor_in[2] >= 0 and lcoor_in[2] < cFrbGrid->_ldimensions[2] and
+					lcoor_in[3] >= 0 and lcoor_in[3] < cFrbGrid->_ldimensions[3] and
+					lcoor_in[4] >= 0 and lcoor_in[4] < cFrbGrid->_ldimensions[4]){
 					
-					fine_fermion_rb_grid_in_list.push_back(full_lcoor_out);
-					coarse_fermion_rb_grid_in_list.push_back(full_lcoor_in);
+					fFrbGrid_in_list.push_back(full_lcoor_out);
+					cFrbGrid_in_list.push_back(full_lcoor_in);
 			
 					size_t odx, idx;
-					odx = ((GridCartesian*)fine_fermion_rb_grid)->oIndex(full_lcoor_out);
-					idx = ((GridCartesian*)fine_fermion_rb_grid)->iIndex(full_lcoor_out);
+					odx = ((GridCartesian*)fFrbGrid)->oIndex(full_lcoor_out);
+					idx = ((GridCartesian*)fFrbGrid)->iIndex(full_lcoor_out);
 					// i/o lists
-					fine_fermion_rb_grid_in_olist.push_back(odx);
-					fine_fermion_rb_grid_in_ilist.push_back(idx);
+					fFrbGrid_in_olist.push_back(odx);
+					fFrbGrid_in_ilist.push_back(idx);
 
 				}else{
-					fine_fermion_rb_grid_out_list.push_back(full_lcoor_out);
+					fFrbGrid_out_list.push_back(full_lcoor_out);
 				}
 
 			}
 		}
 
 // gauge copy list.
-		fine_gauge_grid_in_list.resize(0);
-		coarse_gauge_grid_in_list.resize(0);
-		for(int index = 0; index < fine_gauge_grid->lSites(); index++){
+		fUGrid_in_list.resize(0);
+		cUGrid_in_list.resize(0);
+		for(int index = 0; index < fUGrid->lSites(); index++){
 			std::vector<int> lcoor_out(4), lcoor_in(4);
-			fine_gauge_grid->LocalIndexToLocalCoor(index, lcoor_out);
+			fUGrid->LocalIndexToLocalCoor(index, lcoor_out);
 
 			for(int d = 0; d < 4; d++){
 				lcoor_in[d] = lcoor_out[d] - expansion;
 			}
 
-			if( lcoor_in[0] >= 0 and lcoor_in[0] < coarse_gauge_grid->_ldimensions[0] and
-				lcoor_in[1] >= 0 and lcoor_in[1] < coarse_gauge_grid->_ldimensions[1] and
-				lcoor_in[2] >= 0 and lcoor_in[2] < coarse_gauge_grid->_ldimensions[2] and
-				lcoor_in[3] >= 0 and lcoor_in[3] < coarse_gauge_grid->_ldimensions[3]){
+			if( lcoor_in[0] >= 0 and lcoor_in[0] < cUGrid->_ldimensions[0] and
+				lcoor_in[1] >= 0 and lcoor_in[1] < cUGrid->_ldimensions[1] and
+				lcoor_in[2] >= 0 and lcoor_in[2] < cUGrid->_ldimensions[2] and
+				lcoor_in[3] >= 0 and lcoor_in[3] < cUGrid->_ldimensions[3]){
 				// local gauge links
-				fine_gauge_grid_in_list.push_back(lcoor_out);
-				coarse_gauge_grid_in_list.push_back(lcoor_in);
+				fUGrid_in_list.push_back(lcoor_out);
+				cUGrid_in_list.push_back(lcoor_in);
 			}
 		}
 	}
@@ -174,8 +180,8 @@ void expand_fermion(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out){
 
 	TIMER("expand_fermion");
 
-//	conformable(eg.coarse_fermion_rb_grid, in._grid);
-//	conformable(eg.fine_fermion_rb_grid, out._grid);
+//	conformable(eg.cFrbGrid, in._grid);
+//	conformable(eg.fFrbGrid, out._grid);
 
 	// Simply expand and then copy/merge.
 	// Set the Boundary sites to zero.
@@ -183,15 +189,45 @@ void expand_fermion(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out){
 	
 	out.checkerboard = in.checkerboard;
 
-	parallel_for(size_t index = 0; index < eg.fine_fermion_rb_grid_in_list.size(); index++){
+	parallel_for(size_t index = 0; index < eg.fFrbGrid_in_list.size(); index++){
         sobj s;
-        peekLocalSite(s, in, eg.coarse_fermion_rb_grid_in_list[index]);
-		pokeLocalSite(s, out, eg.fine_fermion_rb_grid_in_list[index]);
+        peekLocalSite(s, in, eg.cFrbGrid_in_list[index]);
+		pokeLocalSite(s, out, eg.fFrbGrid_in_list[index]);
     }
 
-	parallel_for(size_t index = 0; index < eg.fine_fermion_rb_grid_out_list.size(); index++){
+	parallel_for(size_t index = 0; index < eg.fFrbGrid_out_list.size(); index++){
 		sobj s; memset(&s, 0, sizeof(sobj));
-		pokeLocalSite(s, out, eg.fine_fermion_rb_grid_out_list[index]);
+		pokeLocalSite(s, out, eg.fFrbGrid_out_list[index]);
+	}
+
+}
+
+template<class double_type, class float_type>
+void expand_fermion_D2F(ExpandGrid& eg, const Lattice<double_type>& in, Lattice<float_type>& out){
+
+	TIMER("expand_fermion_D2F");
+
+//	conformable(eg.cFrbGrid, in._grid);
+//	conformable(eg.fFrbGrid, out._grid);
+
+	// Simply expand and then copy/merge.
+	// Set the Boundary sites to zero.
+	typedef typename double_type::scalar_object Dsobj;
+	typedef typename float_type::scalar_object Fsobj;
+	
+	out.checkerboard = in.checkerboard;
+
+	parallel_for(size_t index = 0; index < eg.fFrbGrid_in_list.size(); index++){
+        Dsobj ds;
+        Fsobj fs;
+        peekLocalSite(ds, in, eg.cFrbGrid_in_list[index]);
+		D2F(ds, fs);
+		pokeLocalSite(fs, out, eg.fFrbGrid_in_list[index]);
+    }
+
+	parallel_for(size_t index = 0; index < eg.fFrbGrid_out_list.size(); index++){
+		Fsobj fs; memset(&fs, 0, sizeof(Fsobj));
+		pokeLocalSite(fs, out, eg.fFrbGrid_out_list[index]);
 	}
 
 }
@@ -201,8 +237,8 @@ void expand_fermion_qlat(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out
 	
 	TIMER("expand_fermion_qlat");
 
-//	conformable(eg.coarse_fermion_rb_grid, in._grid);
-//	conformable(eg.fine_fermion_rb_grid, out._grid);
+//	conformable(eg.cFrbGrid, in._grid);
+//	conformable(eg.fFrbGrid, out._grid);
 
 	// Simply expand and then copy/merge.
 	// Set the Boundary sites to zero.
@@ -210,15 +246,15 @@ void expand_fermion_qlat(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out
 	
 	out.checkerboard = in.checkerboard;
 
-	parallel_for(size_t index = 0; index < eg.fine_fermion_rb_grid_in_list.size(); index++){
+	parallel_for(size_t index = 0; index < eg.fFrbGrid_in_list.size(); index++){
         sobj s;
-        peekLocalSite(s, in, eg.coarse_fermion_rb_grid_in_list[index]);
-        pokeLocalSite(s, out, eg.fine_fermion_rb_grid_in_list[index]);
+        peekLocalSite(s, in, eg.cFrbGrid_in_list[index]);
+        pokeLocalSite(s, out, eg.fFrbGrid_in_list[index]);
     }
 
-	parallel_for(size_t index = 0; index < eg.fine_fermion_rb_grid_out_list.size(); index++){
+	parallel_for(size_t index = 0; index < eg.fFrbGrid_out_list.size(); index++){
 		sobj s; memset(&s, 1, sizeof(sobj));
-		pokeLocalSite(s, out, eg.fine_fermion_rb_grid_out_list[index]);
+		pokeLocalSite(s, out, eg.fFrbGrid_out_list[index]);
 	}
 
 	std::vector<sobj> out_lex(out._grid->lSites());
@@ -245,19 +281,44 @@ void shrink_fermion(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out){
 
 	TIMER("shrink_fermion");
 
-//	conformable(eg.coarse_fermion_rb_grid, in._grid);
-//	conformable(eg.fine_fermion_rb_grid, out._grid);
+//	conformable(eg.cfrbgrid, in._grid);
+//	conformable(eg.ffrbgrid, out._grid);
 
-	// Simply expand and then copy/merge.
-	// Set the Boundary sites to zero.
+	// simply expand and then copy/merge.
+	// set the boundary sites to zero.
 	typedef typename sc::scalar_object sobj;
 	
 	out.checkerboard = in.checkerboard;
 
-	parallel_for(size_t index = 0; index < eg.coarse_fermion_rb_grid_in_list.size(); index++){
+	parallel_for(size_t index = 0; index < eg.cFrbGrid_in_list.size(); index++){
         sobj s;
-        peekLocalSite(s, in, eg.fine_fermion_rb_grid_in_list[index]);
-		pokeLocalSite(s, out, eg.coarse_fermion_rb_grid_in_list[index]);
+        peekLocalSite(s, in, eg.fFrbGrid_in_list[index]);
+		pokeLocalSite(s, out, eg.cFrbGrid_in_list[index]);
+    }
+
+}
+
+template<class float_type, class double_type>
+void shrink_fermion_F2D(ExpandGrid& eg, const Lattice<float_type>& in, Lattice<double_type>& out){
+
+	TIMER("shrink_fermion_F2D");
+
+//	conformable(eg.cfrbgrid, in._grid);
+//	conformable(eg.ffrbgrid, out._grid);
+
+	// simply expand and then copy/merge.
+	// set the boundary sites to zero.
+	typedef typename float_type::scalar_object Fsobj;
+	typedef typename double_type::scalar_object Dsobj;
+	
+	out.checkerboard = in.checkerboard;
+
+	parallel_for(size_t index = 0; index < eg.cFrbGrid_in_list.size(); index++){
+        Fsobj fs;
+        Dsobj ds;
+        peekLocalSite(fs, in, eg.fFrbGrid_in_list[index]);
+		F2D(fs, ds);
+		pokeLocalSite(ds, out, eg.cFrbGrid_in_list[index]);
     }
 
 }
@@ -268,10 +329,10 @@ void expand_gauge_field_qlat(ExpandGrid& eg, const Lattice<vobj>& in, Lattice<vo
 	// Simply expand and then copy/merge.
 	typedef typename vobj::scalar_object sobj;
 	
-	parallel_for(size_t index = 0; index < eg.fine_gauge_grid_in_list.size(); index++){
+	parallel_for(size_t index = 0; index < eg.fUGrid_in_list.size(); index++){
         sobj s;
-        peekLocalSite(s, in, eg.coarse_gauge_grid_in_list[index]);
-        pokeLocalSite(s, out, eg.fine_gauge_grid_in_list[index]);
+        peekLocalSite(s, in, eg.cUGrid_in_list[index]);
+        pokeLocalSite(s, out, eg.fUGrid_in_list[index]);
     }
 	
 	std::vector<sobj> out_lex(out._grid->lSites());
@@ -289,6 +350,23 @@ void expand_gauge_field_qlat(ExpandGrid& eg, const Lattice<vobj>& in, Lattice<vo
 	// DO comm.
 	refresh_expanded(f);
 	
+	size_t u_size = sizeof(sobj)/4;
+
+	size_t count = 0;
+	// zero (plus) all boundary gauge links.
+	for(size_t offset = 0; offset < f.field.size(); offset++){
+		qlat::Coordinate x = geo.coordinate_from_offset(offset);
+		void* ptr = &(f.field[offset]);
+		for(int mu = 0; mu < 4; mu++){
+			if( x[mu] == geo.node_site_expanded[mu]-geo.expansion_left[mu]-1 ) {
+				count++;
+				memset(ptr+u_size*mu, 0, u_size);
+			}
+		}
+	}
+
+	printf("count = %d\n", count);
+
 	memcpy(out_lex.data(), f.field.data(), f.field.size()*sizeof(sobj));
 	vectorizeFromLexOrdArray(out_lex, out);
 
@@ -348,13 +426,13 @@ inline ComplexD local_inner_product_center(ExpandGrid& eg, const Lattice<vobj> &
 	std::vector<ComplexD> ssum(num_threads, 0.);
 
 #pragma omp parallel for
-	for(size_t index = 0; index < eg.fine_fermion_rb_grid_in_olist.size(); index++){
+	for(size_t index = 0; index < eg.fFrbGrid_in_olist.size(); index++){
 		int thread_num = omp_get_thread_num();
-		scalar_type* lp = (scalar_type*)&left._odata[eg.fine_fermion_rb_grid_in_olist[index]];
-		scalar_type* rp = (scalar_type*)&right._odata[eg.fine_fermion_rb_grid_in_olist[index]];
+		scalar_type* lp = (scalar_type*)&left._odata[eg.fFrbGrid_in_olist[index]];
+		scalar_type* rp = (scalar_type*)&right._odata[eg.fFrbGrid_in_olist[index]];
 		for(size_t w = 0; w < sizeof(vobj)/sizeof(vector_type); w++){
-			size_t offset = eg.fine_fermion_rb_grid_in_ilist[index] + w * Nsimd;
-	//		size_t offset = eg.fine_fermion_rb_grid_in_ilist[index];
+			size_t offset = eg.fFrbGrid_in_ilist[index] + w * Nsimd;
+	//		size_t offset = eg.fFrbGrid_in_ilist[index];
 			ssum[thread_num] += innerProduct(lp[offset], rp[offset]);
 		}
 	}
@@ -382,25 +460,25 @@ void zero_boundary_fermion(ExpandGrid& eg, Lattice<sc>& in){
 
 	typedef typename sc::scalar_object sobj;
 
-	parallel_for(size_t index = 0; index < eg.fine_fermion_rb_grid_out_list.size(); index++){
+	parallel_for(size_t index = 0; index < eg.fFrbGrid_out_list.size(); index++){
 		sobj s; memset(&s, 0, sizeof(sobj));
-		pokeLocalSite(s, in, eg.fine_fermion_rb_grid_out_list[index]);
+		pokeLocalSite(s, in, eg.fFrbGrid_out_list[index]);
 	}
 }
 
 template<class F>
-int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol, int iterations, RealD e = 0.){
+int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol, int iterations){
 
-	TIMER("local_conjugate_gradient_MdagM");
+	TIMER("local_CG");
 	sol.checkerboard = src.checkerboard;
 //	conformable(src, sol);    
 
 	sol = zero;
 
-	F mp(src);
-	F mmp(src);
-	F r(src);
-	F p(src);
+	static F mp(src);
+	static F mmp(src);
+	static F r(src);
+	static F p(src);
 
 	r = src;
 	p = src;
@@ -408,19 +486,19 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 	RealD rk2 = local_norm_sqr(r);
 	RealD Mpk2, MdagMpk2, alpha, beta, rkp12;
 	
-    if( src._grid->ThisRank() == 0 ){
+    if( eg.cUGrid->IsBoss() ){
         printf("local_CG_MdagM: BEFORE starting on NODE #%04d: r2 = %8.4e \n",
                 src._grid->ThisRank(), rk2);
     }
 
-	WilsonFermion5DStatic::dirichlet = true;
+//	WilsonFermion5DStatic::dirichlet = true;
 
 	for(int local_loop_count = 0; local_loop_count < iterations; local_loop_count++){
 		D.Op(p, mp);
         D.AdjOp(mp, mmp);
 	//	mmp = mmp + e * p;
 
-//		zero_boundary_fermion(eg, mmp);
+		zero_boundary_fermion(eg, mmp);
 //		zero_boundary_fermion(eg, p); // not necessary?
         Mpk2 = std::real(local_inner_product(p, mmp));
         MdagMpk2 = local_norm_sqr(mmp); // Dag yes, (Mdag * M * p_k, Mdag * M * p_k)
@@ -440,7 +518,7 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 		if ( true ){
 			zero_boundary_fermion(eg, sol);
             RealD sol2 = local_norm_sqr(sol);
-            if( src._grid->ThisRank() == 0 ){
+            if( eg.cUGrid->IsBoss() ){
                 printf("local_CG_MdagM: l.i. #%04d on NODE #%04d: r2 = %8.4e psi2 = %8.4e alpha = %8.4e beta = %8.4e Mpk2 = %8.4e \n",
                         local_loop_count, src._grid->ThisRank(), rk2, sol2, alpha, beta, Mpk2);
             }
@@ -448,7 +526,7 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
  		
 	}
 	
-	WilsonFermion5DStatic::dirichlet = false;
+//	WilsonFermion5DStatic::dirichlet = false;
     
 	return 0;	
 }
@@ -536,8 +614,8 @@ int MSP_conjugate_gradient(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOpera
 	F r(src);
 	F z(src);
 
-	F f_r(eg.fine_fermion_rb_grid);
-	F f_z(eg.fine_fermion_rb_grid);
+	F f_r(eg.fFrbGrid);
+	F f_z(eg.fFrbGrid);
 
 	D.Op(sol, mp);
 	D.AdjOp(mp, mmp);
@@ -633,11 +711,11 @@ int MSPCG_half(ExpandGrid& eg, LinearOperatorBase<G>& D, LinearOperatorBase<F>& 
 	G r(src);
 	G z(src);
 
-	G f_r(eg.fine_fermion_rb_grid);
-	G f_z(eg.fine_fermion_rb_grid);
+	G f_r(eg.fFrbGrid);
+	G f_z(eg.fFrbGrid);
 	
-	F f_r_F(eg.fine_fermion_rb_grid_F);
-	F f_z_F(eg.fine_fermion_rb_grid_F);
+	F f_r_F(eg.fFrbGrid_F);
+	F f_z_F(eg.fFrbGrid_F);
 
 	D.Op(sol, mp);
 	D.AdjOp(mp, mmp);
@@ -655,17 +733,11 @@ int MSPCG_half(ExpandGrid& eg, LinearOperatorBase<G>& D, LinearOperatorBase<F>& 
 		return 0;
 	}
 
-	expand_fermion(eg, r, f_r);
-	precisionChange(f_r_F, f_r);
+	expand_fermion_D2F(eg, r, f_r_F);
+//	precisionChange(f_r_F, f_r);
 	local_conjugate_gradient_MdagM(eg, fD, f_r_F, f_z_F, f_iter); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
-	if(not src._grid->ThisRank()){
-		printf("f_z_F = %8.4e;\n", local_norm_sqr(f_z_F));
-	}
-	precisionChange(f_z, f_z_F);
-	if(not src._grid->ThisRank()){
-		printf("f_z = %8.4e;\n", local_norm_sqr(f_z));
-	}
-	shrink_fermion(eg, f_z, z);
+//	precisionChange(f_z, f_z_F);
+	shrink_fermion_F2D(eg, f_z_F, z);
 
 	p = z; // p0 = z0
 
@@ -682,13 +754,16 @@ int MSPCG_half(ExpandGrid& eg, LinearOperatorBase<G>& D, LinearOperatorBase<F>& 
 
 		sol = sol + alpha * p; // x_k+1 = x_k + alpha * p_k
 		r = r - alpha * mmp; // r_k+1 = r_k - alpha * Ap_k
-    
-		expand_fermion(eg, r, f_r);
-		precisionChange(f_r_F, f_r);
+   
+		{
+		TIMER("local_CG/padding")
+		expand_fermion_D2F(eg, r, f_r_F);
+//		precisionChange(f_r_F, f_r);
 		local_conjugate_gradient_MdagM(eg, fD, f_r_F, f_z_F, f_iter); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
-		precisionChange(f_z, f_z_F);
-		shrink_fermion(eg, f_z, z);
-		
+//		precisionChange(f_z, f_z_F);
+		shrink_fermion_F2D(eg, f_z_F, z);
+		}
+
 		zkp1rkp1 = std::real(innerProduct(z, r));	
 //		zkp1rkp1 = -alpha*std::real(innerProduct(z, mmp));	
 		
@@ -741,14 +816,14 @@ int DD_CG(ExpandGrid& eg, LinearOperatorBase<F>& D, LinearOperatorBase<F>& fD, c
 	F r(src);
 	F z(src);
 
-	F f_r(eg.fine_fermion_rb_grid);
-	F f_z(eg.fine_fermion_rb_grid);
+	F f_r(eg.fFrbGrid);
+	F f_z(eg.fFrbGrid);
 
 // DD specifically
-	F f_z2(eg.fine_fermion_rb_grid);
+	F f_z2(eg.fFrbGrid);
 	
-	F f_tmp(eg.fine_fermion_rb_grid);
-	F f_tmp2(eg.fine_fermion_rb_grid);
+	F f_tmp(eg.fFrbGrid);
+	F f_tmp2(eg.fFrbGrid);
 	
 	F r_tmp(src);
 	F r_tmp2(src);
