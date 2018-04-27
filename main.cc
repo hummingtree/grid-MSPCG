@@ -78,8 +78,9 @@ int main(int argc, char** argv) {
 	printf("Node #%03d(grid): %02dx%02dx%02dx%02d ; #%03d(qlat): %02dx%02dx%02dx%02d\n", UGrid->ThisRank(), 
 				UGrid->ThisProcessorCoor()[0], UGrid->ThisProcessorCoor()[1], UGrid->ThisProcessorCoor()[2], UGrid->ThisProcessorCoor()[3], 
 				qlat::get_id_node(), qlat::get_coor_node()[0], qlat::get_coor_node()[1], qlat::get_coor_node()[2], qlat::get_coor_node()[3]);
-	
-	ExpandGrid eg; eg.init(UGrid, 2, Ls);
+
+	int padding = 2;
+	ExpandGrid eg; eg.init(UGrid, padding, Ls);
 	
 	std::vector<int> seeds4({1, 2, 3, 4});
 	std::vector<int> seeds5({5, 6, 7, 8});
@@ -227,15 +228,16 @@ int main(int argc, char** argv) {
 //	CGTimer.Stop();
 //	std::cout << GridLogMessage << "Total CG time : " << CGTimer.Elapsed() << std::endl;
 
-	int local_iter = 6;
+	int local_iter = 12000;
 	RealD local_e  = 0.;
 	std::cout << GridLogMessage << "MSPCG local iteration : " << local_iter << std::endl;
 	std::cout << GridLogMessage << "MSPCG local mass      : " << fD_mass << std::endl;
 	std::cout << GridLogMessage << "MSPCG local e         : " << local_e << std::endl;
+	std::cout << GridLogMessage << "MSPCG local padding   : " << padding << std::endl;
 	
 	MSPCGTimer.Start();
 //	MSP_conjugate_gradient(eg, HermOpEO, expandedHermOpEO, Mdag_src_o, y, 1e-7, local_iter, 50000, local_e);
-	MSPCG_half(eg, HermOpEO, fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000);
+	MSPCG_half(eg, HermOpEO, fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
 //	DD_CG(eg, HermOpEO, expandedHermOpEO, Mdag_src_o, y, 1e-7, local_iter, 50000);
 	MSPCGTimer.Stop();
 	std::cout << GridLogMessage << "Total MSPCG time : " << MSPCGTimer.Elapsed() << std::endl;
