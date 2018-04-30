@@ -57,7 +57,7 @@ public:
 	GridRedBlackCartesian* fUrbGrid_F;
 	GridRedBlackCartesian* fFrbGrid_F;
 	
-	int expansion;
+	std::array<int, 4> expansion;
 
 	std::vector<std::vector<int>> fFrbGrid_in_list;
 	std::vector<std::vector<int>> cFrbGrid_in_list;
@@ -69,7 +69,7 @@ public:
 	std::vector<std::vector<int>> fUGrid_in_list;
 	std::vector<std::vector<int>> cUGrid_in_list;
 
-	inline void init(GridCartesian* _cUGrid, int _expansion, int Ls){
+	inline void init(GridCartesian* _cUGrid, std::array<int, 4>& _expansion, int Ls){
 
 		expansion = _expansion;		
 		cUGrid = _cUGrid;
@@ -84,7 +84,7 @@ public:
     	
 		std::vector<int> expanded_latt_size = latt_size;
     	for(int i = 0; i < 4; i++){
-			expanded_latt_size[i] = latt_size[i]/mpi_layout[i] + 2*expansion;
+			expanded_latt_size[i] = latt_size[i]/mpi_layout[i] + 2*expansion[i];
 //   		expanded_latt_size[i] = latt_size[i] + 2*expansion*mpi_layout[i];
 		}
 
@@ -112,9 +112,9 @@ public:
 			fFrbGrid->LocalIndexToLocalCoor(index, lcoor_out);
 
 			lcoor_in[0] = lcoor_out[0]; // s: Ls
-			lcoor_in[1] = lcoor_out[1] - expansion/2; // x is the _checker_dim
+			lcoor_in[1] = lcoor_out[1] - expansion[0]/2; // x is the _checker_dim
 			for(int d = 2; d < 5; d++){
-				lcoor_in[d] = lcoor_out[d] - expansion;
+				lcoor_in[d] = lcoor_out[d] - expansion[d-1];
 			}
 
 			for(int cb = 0; cb < 2; cb++){
@@ -160,7 +160,7 @@ public:
 			fUGrid->LocalIndexToLocalCoor(index, lcoor_out);
 
 			for(int d = 0; d < 4; d++){
-				lcoor_in[d] = lcoor_out[d] - expansion;
+				lcoor_in[d] = lcoor_out[d] - expansion[d];
 			}
 
 			if( lcoor_in[0] >= 0 and lcoor_in[0] < cUGrid->_ldimensions[0] and
@@ -263,7 +263,7 @@ void expand_fermion_qlat(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out
 	qlat::Coordinate global_size(in._grid->_gdimensions[1], in._grid->_gdimensions[2], in._grid->_gdimensions[3], in._grid->_gdimensions[4]);
 	qlat::Geometry geo; geo.init(global_size, in._grid->_gdimensions[0]); // multiplicity = in._grid->_gdimensions[0]
 
-	qlat::Coordinate expanse(eg.expansion/2, eg.expansion, eg.expansion, eg.expansion); // x direction is the checkerboard dimension so the /2.
+	qlat::Coordinate expanse(eg.expansion[0]/2, eg.expansion[1], eg.expansion[2], eg.expansion[3]); // x direction is the checkerboard dimension so the /2.
 	geo.resize(expanse, expanse);
 
 	qlat::Field<sobj> f; f.init(geo);
@@ -341,7 +341,7 @@ void expand_gauge_field_qlat(ExpandGrid& eg, const Lattice<vobj>& in, Lattice<vo
 	qlat::Coordinate global_size(in._grid->_gdimensions[0], in._grid->_gdimensions[1], in._grid->_gdimensions[2], in._grid->_gdimensions[3]);
 	qlat::Geometry geo; geo.init(global_size, 1); // packing gauge links in four directions together, therefore multiplicity = 1
 
-	qlat::Coordinate expanse(eg.expansion, eg.expansion, eg.expansion, eg.expansion);
+	qlat::Coordinate expanse(eg.expansion[0], eg.expansion[1], eg.expansion[2], eg.expansion[3]);
 	geo.resize(expanse, expanse);
 
 	qlat::Field<sobj> f; f.init(geo);
@@ -467,7 +467,7 @@ void zero_boundary_fermion(ExpandGrid& eg, Lattice<sc>& in){
 }
 
 template<class F>
-int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol, int iterations, RealD e, RealD percent = 1e-2){
+int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol, int iterations, RealD e, RealD percent = 1e-3){
 
 	TIMER("local_CG");
 	sol.checkerboard = src.checkerboard;

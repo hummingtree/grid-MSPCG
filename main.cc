@@ -79,7 +79,7 @@ int main(int argc, char** argv) {
 				UGrid->ThisProcessorCoor()[0], UGrid->ThisProcessorCoor()[1], UGrid->ThisProcessorCoor()[2], UGrid->ThisProcessorCoor()[3], 
 				qlat::get_id_node(), qlat::get_coor_node()[0], qlat::get_coor_node()[1], qlat::get_coor_node()[2], qlat::get_coor_node()[3]);
 
-	int padding = 2;
+	std::array<int, 4> padding = {2,2,2,2};
 	ExpandGrid eg; eg.init(UGrid, padding, Ls);
 	
 	std::vector<int> seeds4({1, 2, 3, 4});
@@ -233,7 +233,7 @@ int main(int argc, char** argv) {
 	std::cout << GridLogMessage << "MSPCG local iteration : " << local_iter << std::endl;
 	std::cout << GridLogMessage << "MSPCG local mass      : " << fD_mass << std::endl;
 	std::cout << GridLogMessage << "MSPCG local e         : " << local_e << std::endl;
-	std::cout << GridLogMessage << "MSPCG local padding   : " << padding << std::endl;
+	std::cout << GridLogMessage << "MSPCG local padding   : [" << padding[0] << " " << padding[1] << " " << padding[2] << " " << padding[3] << "]"<< std::endl;
 	
 	MSPCGTimer.Start();
 //	MSP_conjugate_gradient(eg, HermOpEO, expandedHermOpEO, Mdag_src_o, y, 1e-7, local_iter, 50000, local_e);
