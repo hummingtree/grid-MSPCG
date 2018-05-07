@@ -412,7 +412,7 @@ void expand_gauge_field_qlat(ExpandGrid& eg, const Lattice<vobj>& in, Lattice<vo
 	assert(f.field.size()*1 == out._grid->lSites()); // 1 for multiplicity
 	memcpy(f.field.data(), out_lex.data(), f.field.size()*sizeof(sobj));
 	// DO comm.
-	refresh_expanded_m2(f);
+	refresh_expanded(f);
 	
 	size_t u_size = sizeof(sobj)/4;
 

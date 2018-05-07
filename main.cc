@@ -230,11 +230,12 @@ int main(int argc, char** argv) {
 
 	printf("Right before fermion expansion with qlat.\n");
 	
-	expand_fermion_D2F_qlat(eg, cXD, fXF);
-	zero_boundary_fermion_inner(eg, fXF);
+//	expand_fermion_D2F_qlat(eg, cXD, fXF);
+	expand_fermion_D2F(eg, cXD, fXF);
+//	zero_boundary_fermion_inner(eg, fXF);
 //	precisionChange(fXF, fXD);
 
-//	if(UGrid->ThisRank() != 0) cXD = zero;
+	if(UGrid->ThisRank() != 0) cXD = zero;
 	HermOpEO.Op(cXD, cYD);
 	HermOpEO.AdjOp(cYD, cXD);
 
@@ -255,10 +256,10 @@ int main(int argc, char** argv) {
 //	if(UGrid->ThisRank() != 0) ydd = zero;
 
 //	std::cout << GridLogMessage << "|cYD - cXD|**2 : " << local_norm_sqr(cXD) << "\t" << local_norm_sqr(cYD) << std::endl;
-//	if(UGrid->IsBoss()){
+	if(UGrid->IsBoss()){
 		printf("|cXD|**2 = %20.16e, |cYD|**2 = %20.16e\n", local_norm_sqr(cXD), local_norm_sqr(cYD));
 //		printf("|cXD|**2 = %20.16e, |cYD|**2 = %20.16e, |shifted_cYD|**2 = %20.16e\n", norm2(cXD), norm2(cYD), norm2(shifted_cYD));
-//	}
+	}
 
 //	local_conjugate_gradient_MdagM_variant(eg, expandedHermOpEO, xd, yd, 20);
 
