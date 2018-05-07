@@ -58,6 +58,7 @@ public:
 	GridRedBlackCartesian* fFrbGrid_F;
 	
 	std::array<int, 4> expansion;
+	std::array<int, 4> inner_expansion;
 
 	std::vector<std::vector<int>> fFrbGrid_in_list;
 	std::vector<std::vector<int>> cFrbGrid_in_list;
@@ -68,10 +69,13 @@ public:
 	
 	std::vector<std::vector<int>> fUGrid_in_list;
 	std::vector<std::vector<int>> cUGrid_in_list;
+	
+	std::vector<std::vector<int>> fFrbGrid_inner_out_list;
 
-	inline void init(GridCartesian* _cUGrid, std::array<int, 4>& _expansion, int Ls){
+	inline void init(GridCartesian* _cUGrid, std::array<int, 4>& _expansion, std::array<int, 4>& _inner_expansion, int Ls){
 
 		expansion = _expansion;		
+		inner_expansion = _inner_expansion;		
 		cUGrid = _cUGrid;
 		cUrbGrid = SpaceTimeGrid::makeFourDimRedBlackGrid(cUGrid);
 		cFGrid = SpaceTimeGrid::makeFiveDimGrid(Ls, cUGrid);
@@ -105,6 +109,8 @@ public:
 		fFrbGrid_in_olist.resize(0);
 		fFrbGrid_in_ilist.resize(0);
 		fFrbGrid_out_list.resize(0);
+
+		fFrbGrid_inner_out_list.resize(0);
 
 // fermion copy list. Maybe by directly get index for memory we will get a better performance?
 		for(int index = 0; index < fFrbGrid->lSites(); index++){
@@ -147,6 +153,15 @@ public:
 
 				}else{
 					fFrbGrid_out_list.push_back(full_lcoor_out);
+				}
+				
+				
+				if( lcoor_in[1] < -inner_expansion[0]/2 or lcoor_in[1] >= cFrbGrid->_ldimensions[1]+inner_expansion[0]/2 or 
+					lcoor_in[2] < -inner_expansion[1] or lcoor_in[2] >= cFrbGrid->_ldimensions[2]+inner_expansion[1] or 
+					lcoor_in[3] < -inner_expansion[2] or lcoor_in[3] >= cFrbGrid->_ldimensions[3]+inner_expansion[2] or 
+					lcoor_in[4] < -inner_expansion[3] or lcoor_in[4] >= cFrbGrid->_ldimensions[4]+inner_expansion[3]){
+					
+					fFrbGrid_inner_out_list.push_back(full_lcoor_out);
 				}
 
 			}
@@ -229,6 +244,55 @@ void expand_fermion_D2F(ExpandGrid& eg, const Lattice<double_type>& in, Lattice<
 		Fsobj fs; memset(&fs, 0, sizeof(Fsobj));
 		pokeLocalSite(fs, out, eg.fFrbGrid_out_list[index]);
 	}
+
+}
+
+template<class double_type, class float_type>
+void expand_fermion_D2F_qlat(ExpandGrid& eg, const Lattice<double_type>& in, Lattice<float_type>& out){
+
+	TIMER("expand_fermion_D2F");
+
+//	conformable(eg.cFrbGrid, in._grid);
+//	conformable(eg.fFrbGrid, out._grid);
+
+	// Simply expand and then copy/merge.
+	// Set the Boundary sites to zero.
+	typedef typename double_type::scalar_object Dsobj;
+	typedef typename float_type::scalar_object Fsobj;
+	
+	out.checkerboard = in.checkerboard;
+
+	parallel_for(size_t index = 0; index < eg.fFrbGrid_in_list.size(); index++){
+        Dsobj ds;
+        Fsobj fs;
+        peekLocalSite(ds, in, eg.cFrbGrid_in_list[index]);
+		D2F(ds, fs);
+		pokeLocalSite(fs, out, eg.fFrbGrid_in_list[index]);
+    }
+
+	parallel_for(size_t index = 0; index < eg.fFrbGrid_out_list.size(); index++){
+		Fsobj fs; memset(&fs, 0, sizeof(Fsobj));
+		pokeLocalSite(fs, out, eg.fFrbGrid_out_list[index]);
+	}
+	
+	std::vector<Fsobj> out_lex(out._grid->lSites());
+  	unvectorizeToLexOrdArray(out_lex, out);
+
+	qlat::Coordinate global_size(in._grid->_gdimensions[1], in._grid->_gdimensions[2], in._grid->_gdimensions[3], in._grid->_gdimensions[4]);
+	qlat::Geometry geo; geo.init(global_size, in._grid->_gdimensions[0]); // multiplicity = in._grid->_gdimensions[0]
+
+	qlat::Coordinate expanse(eg.expansion[0]/2, eg.expansion[1], eg.expansion[2], eg.expansion[3]); // x direction is the checkerboard dimension so the /2.
+	geo.resize(expanse, expanse);
+
+	qlat::Field<Fsobj> f; f.init(geo);
+	assert(f.field.size() == out._grid->lSites()); 
+	memcpy(f.field.data(), out_lex.data(), f.field.size()*sizeof(Fsobj));
+	// DO comm.
+//	refresh_expanded_m2(f);
+	refresh_expanded(f);
+	
+	memcpy(out_lex.data(), f.field.data(), f.field.size()*sizeof(Fsobj));
+	vectorizeFromLexOrdArray(out_lex, out);
 
 }
 
@@ -348,7 +412,7 @@ void expand_gauge_field_qlat(ExpandGrid& eg, const Lattice<vobj>& in, Lattice<vo
 	assert(f.field.size()*1 == out._grid->lSites()); // 1 for multiplicity
 	memcpy(f.field.data(), out_lex.data(), f.field.size()*sizeof(sobj));
 	// DO comm.
-	refresh_expanded(f);
+	refresh_expanded_m2(f);
 	
 	size_t u_size = sizeof(sobj)/4;
 
@@ -466,6 +530,19 @@ void zero_boundary_fermion(ExpandGrid& eg, Lattice<sc>& in){
 	}
 }
 
+template<class sc>
+void zero_boundary_fermion_inner(ExpandGrid& eg, Lattice<sc>& in){
+
+	TIMER("zero_boundary_fermion_inner");
+
+	typedef typename sc::scalar_object sobj;
+
+	parallel_for(size_t index = 0; index < eg.fFrbGrid_inner_out_list.size(); index++){
+		sobj s; memset(&s, 0, sizeof(sobj));
+		pokeLocalSite(s, in, eg.fFrbGrid_inner_out_list[index]);
+	}
+}
+
 template<class F>
 int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol, int iterations, RealD e, RealD percent = 1e-3){
 
@@ -518,6 +595,81 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
         
 		if ( true ){
 			zero_boundary_fermion(eg, sol);
+            RealD sol2 = local_norm_sqr(sol);
+            if( eg.cUGrid->IsBoss() ){
+                printf("local_CG_MdagM: l.i. #%04d on NODE #%04d: r2 = %8.4e psi2 = %8.4e alpha = %8.4e beta = %8.4e Mpk2 = %8.4e \n",
+                        local_loop_count, src._grid->ThisRank(), rk2, sol2, alpha, beta, Mpk2);
+            }
+        }
+
+		if( rk2 < tgt_r2 ){
+			int max; 
+			MPI_Reduce(&local_loop_count, &max, 1, MPI_INT, MPI_MAX, 0, eg.cUGrid->communicator);
+			if( eg.cUGrid->IsBoss() ){
+                printf("local_CG EXITS after reaching precision %% = %8.4e: maximum iteration count = %04d\n", percent, max);
+            }
+			return max; 
+		}
+ 		
+	}
+	
+//	WilsonFermion5DStatic::dirichlet = false;
+    
+	return iterations;	
+}
+
+template<class F>
+int local_CG_pad(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol, int iterations, RealD e, RealD percent = 1e-3){
+
+	TIMER("local_CG_pad");
+	sol.checkerboard = src.checkerboard;
+//	conformable(src, sol);    
+
+	sol = zero;
+
+	static F mp(src);
+	static F mmp(src);
+	static F r(src);
+	static F p(src);
+
+	r = src;
+	p = src;
+
+	RealD rk2 = local_norm_sqr(r);
+	RealD Mpk2, MdagMpk2, alpha, beta, rkp12;
+	RealD tgt_r2 = rk2 * percent * percent;
+
+    if( eg.cUGrid->IsBoss() ){
+        printf("local_CG_MdagM: BEFORE starting on NODE #%04d: r2 = %8.4e \n",
+                src._grid->ThisRank(), rk2);
+    }
+
+//	WilsonFermion5DStatic::dirichlet = true;
+
+	for(int local_loop_count = 0; local_loop_count < iterations; local_loop_count++){
+		D.Op(p, mp);
+        D.AdjOp(mp, mmp);
+		mmp = mmp + e * p;
+
+		zero_boundary_fermion_inner(eg, mmp);
+//		zero_boundary_fermion(eg, p); // not necessary?
+        Mpk2 = std::real(local_inner_product(p, mmp));
+        MdagMpk2 = local_norm_sqr(mmp); // Dag yes, (Mdag * M * p_k, Mdag * M * p_k)
+
+        alpha = rk2 / Mpk2; 
+
+		sol = sol + alpha * p;
+		r = r - alpha * mmp;
+//		zero_boundary_fermion(eg, r);
+		rkp12 = local_norm_sqr(r);
+
+		beta = rkp12 / rk2;
+		rk2 = rkp12;
+
+		p = r + beta * p;
+        
+		if ( true ){
+			zero_boundary_fermion_inner(eg, sol);
             RealD sol2 = local_norm_sqr(sol);
             if( eg.cUGrid->IsBoss() ){
                 printf("local_CG_MdagM: l.i. #%04d on NODE #%04d: r2 = %8.4e psi2 = %8.4e alpha = %8.4e beta = %8.4e Mpk2 = %8.4e \n",
@@ -770,6 +922,156 @@ int MSPCG_half(ExpandGrid& eg, LinearOperatorBase<G>& D, LinearOperatorBase<F>& 
 		expand_fermion_D2F(eg, r, f_r_F);
 //		precisionChange(f_r_F, f_r);
 		local_conjugate_gradient_MdagM(eg, fD, f_r_F, f_z_F, f_iter, e); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
+//		precisionChange(f_z, f_z_F);
+		shrink_fermion_F2D(eg, f_z_F, z);
+		}
+
+//		zkp1rkp1 = std::real(innerProduct(z, r));	
+		zkp1rkp1 = -alpha*std::real(innerProduct(z, mmp));	
+		
+		beta = zkp1rkp1 / rkzk;
+		p = z + beta * p; // p_k+1 = z_k+1 + beta * p_k
+	
+		r2 = norm2(r);
+
+		if ( true ){
+		    if(not src._grid->ThisRank()){
+				printf("MSPCG/iter.count/r2/target_r2/%%/target_%%: %05d %8.4e %8.4e %8.4e %8.4e\n", k, r2, tgt_r2, std::sqrt(r2/src_sqr), percent);
+			}
+		}
+
+		// Stopping condition
+		if ( r2 < tgt_r2 ) { 
+		    
+			D.Op(sol, mp);
+		    D.AdjOp(mp, mmp);
+		    r = src - mmp;
+		    r2 = norm2(r);	
+            
+			if(not src._grid->ThisRank()){
+                printf("MSPCG CONVERGED at iteration %05d with true r2 = %8.4e: target r2 = %8.4e\n", k, r2, tgt_r2);
+            }
+			
+			return k;
+
+		}
+
+	}
+    if(not src._grid->ThisRank()){
+        printf("MSPCG has NOT CONVERGED after iteration %05d\n", max_iter);
+    }
+	
+	return -1;
+}
+
+template<class F>
+void shift_ff(const F& in, F& out, bool forward){
+	if(forward){
+		out = Cshift( in, 1, out._grid->_ldimensions[1]*2/2);
+		out = Cshift(out, 2, out._grid->_ldimensions[2]/2);
+		out = Cshift(out, 3, out._grid->_ldimensions[3]/2);
+		out = Cshift(out, 4, out._grid->_ldimensions[4]/2);
+		return;
+	}else{
+		out = Cshift( in, 1, -out._grid->_ldimensions[1]*2/2);
+		out = Cshift(out, 2, -out._grid->_ldimensions[2]/2);
+		out = Cshift(out, 3, -out._grid->_ldimensions[3]/2);
+		out = Cshift(out, 4, -out._grid->_ldimensions[4]/2);
+		return;
+	}
+}
+
+template<class F, class G>
+int MSPCG_shift(ExpandGrid& eg, LinearOperatorBase<G>& D, LinearOperatorBase<F>& fD, 
+						LinearOperatorBase<G>& shifted_D, LinearOperatorBase<F>& shifted_fD, const G& src, G& sol, 
+								RealD percent, int f_iter, size_t max_iter = 50000, RealD e = 0.)
+{
+
+	size_t shoushuliangduan = 10000;
+
+	G shifted_src(src);
+	G shifted_sol(sol);
+	shift_ff(src, shifted_src, true);
+
+	int indicator = -1;
+	size_t count = 0;
+
+	while(indicator<0){
+		MSPCG_half(eg, D, fD, src, sol, percent, f_iter, shoushuliangduan, e);
+		shift_ff(sol, shifted_sol, true);
+		indicator = MSPCG_half(eg, shifted_D, shifted_fD, shifted_src, shifted_sol, percent, f_iter, shoushuliangduan, e);
+		shift_ff(shifted_sol, sol, false);
+	
+		count += shoushuliangduan*2;
+	}
+	return count;
+}
+
+template<class F, class G>
+int MSPCG_pad(ExpandGrid& eg, LinearOperatorBase<G>& D, LinearOperatorBase<F>& fD, const G& src, G& sol, 
+								RealD percent, int f_iter, size_t max_iter = 50000, RealD e = 0.)
+{
+
+	RealD alpha, beta, rkzk, pkApk, zkp1rkp1, zkrk;
+	RealD r2, src_sqr, tgt_r2;
+
+	G p(src);
+	G mp(src);
+	G mmp(src);
+	G r(src);
+	G z(src);
+
+	G f_r(eg.fFrbGrid);
+	G f_z(eg.fFrbGrid);
+	
+	F f_r_F(eg.fFrbGrid_F);
+	F f_z_F(eg.fFrbGrid_F);
+
+	D.Op(sol, mp);
+	D.AdjOp(mp, mmp);
+
+	r = src - mmp;
+	r2 = norm2(r);
+	
+	src_sqr = norm2(src);
+	tgt_r2  = src_sqr * percent * percent;
+
+	if(r2 < tgt_r2){
+		if(not src._grid->ThisRank()){
+			printf("MSP_conjugate_gradient() CONVERGED at iteration 0;\n");
+		}
+		return 0;
+	}
+
+	expand_fermion_D2F_qlat(eg, r, f_r_F);
+	zero_boundary_fermion_inner(eg, f_r_F);
+//	precisionChange(f_r_F, f_r);
+	local_CG_pad(eg, fD, f_r_F, f_z_F, f_iter, e); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
+//	precisionChange(f_z, f_z_F);
+	shrink_fermion_F2D(eg, f_z_F, z);
+
+	p = z; // p0 = z0
+
+	for(size_t k = 0; k < max_iter; k++){
+
+		TIMER("MSPCG_iteration");
+
+		rkzk = std::real(innerProduct(r, z));
+
+		D.Op(p, mp);
+		D.AdjOp(mp, mmp);
+		pkApk = std::real(innerProduct(p, mmp));
+		alpha = rkzk / pkApk; // alpha_k
+
+		sol = sol + alpha * p; // x_k+1 = x_k + alpha * p_k
+		r = r - alpha * mmp; // r_k+1 = r_k - alpha * Ap_k
+   
+		{
+		TIMER("local_CG/padding")
+		expand_fermion_D2F_qlat(eg, r, f_r_F);
+		zero_boundary_fermion_inner(eg, f_r_F);
+//		precisionChange(f_r_F, f_r);
+		local_CG_pad(eg, fD, f_r_F, f_z_F, f_iter, e); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
 //		precisionChange(f_z, f_z_F);
 		shrink_fermion_F2D(eg, f_z_F, z);
 		}

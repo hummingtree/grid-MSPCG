@@ -80,7 +80,8 @@ int main(int argc, char** argv) {
 				qlat::get_id_node(), qlat::get_coor_node()[0], qlat::get_coor_node()[1], qlat::get_coor_node()[2], qlat::get_coor_node()[3]);
 
 	std::array<int, 4> padding = {2,2,2,2};
-	ExpandGrid eg; eg.init(UGrid, padding, Ls);
+	std::array<int, 4> inner_padding = {0,0,0,0};
+	ExpandGrid eg; eg.init(UGrid, padding, inner_padding, Ls);
 	
 	std::vector<int> seeds4({1, 2, 3, 4});
 	std::vector<int> seeds5({5, 6, 7, 8});
@@ -94,6 +95,7 @@ int main(int argc, char** argv) {
 	LatticeFermion result(eg.cFGrid);
 	result = zero;
 	LatticeGaugeField Umu(UGrid);
+	LatticeGaugeField shifted_Umu(UGrid);
 	
 //	std::vector<int> simd_layout = GridDefaultSimd(Nd,vComplexD::Nsimd());
 //	std::vector<int> mpi_layout  = GridDefaultMpi();
@@ -117,6 +119,10 @@ int main(int argc, char** argv) {
 	std::string file("/global/homes/j/jiquntu/configurations/32x64x12ID_b1.75_mh0.045_ml0.0001/configurations/ckpoint_lat.160");
 //	std::string file("/global/homes/j/jiquntu/configurations/64x128x10I_mh0.02659_ml0.000661/ckpoint_lat.2850");
 	NerscIO::readConfiguration(Umu, header, file);
+	shifted_Umu = Cshift(        Umu, 0, UGrid->_ldimensions[0]/2);
+	shifted_Umu = Cshift(shifted_Umu, 1, UGrid->_ldimensions[1]/2);
+	shifted_Umu = Cshift(shifted_Umu, 2, UGrid->_ldimensions[2]/2);
+	shifted_Umu = Cshift(shifted_Umu, 3, UGrid->_ldimensions[3]/2);
 
 //	SU3::HotConfiguration(RNG4, Umu);
 
@@ -131,7 +137,10 @@ int main(int argc, char** argv) {
 	RealD c = 10./12.;
 	MobiusFermionR DMobius(Umu, *eg.cFGrid, *eg.cFrbGrid, *eg.cUGrid, *eg.cUrbGrid, mass, M5, b, c);
 	DMobius.ZeroCounters();
-	
+
+	MobiusFermionR shifted_DMobius(shifted_Umu, *eg.cFGrid, *eg.cFrbGrid, *eg.cUGrid, *eg.cUrbGrid, mass, M5, b, c);
+	shifted_DMobius.ZeroCounters();
+
 	LatticeFermionD src_o(eg.cFrbGrid);
 	LatticeFermionD result_o(eg.cFrbGrid);
 	pickCheckerboard(Odd, src_o, src);
@@ -155,6 +164,16 @@ int main(int argc, char** argv) {
 	precisionChange(fUField_F, fUField);
 	std::cout << "Changed to single precision Gauge field." << std::endl;
 	std::cout << GridLogMessage << WilsonLoops<PeriodicGimplF>::avgPlaquette(fUField_F) << std::endl;
+	
+	LatticeGaugeFieldD shifted_fUField(eg.fUGrid);
+	expand_gauge_field_qlat(eg, shifted_Umu, shifted_fUField);
+	std::cout << "shifted Gauge field expanded." << std::endl;
+	std::cout << GridLogMessage << WilsonLoops<PeriodicGimplR>::avgPlaquette(shifted_Umu) << " \t " << WilsonLoops<PeriodicGimplR>::avgPlaquette(shifted_fUField) << std::endl;
+
+	LatticeGaugeFieldF shifted_fUField_F(eg.fUGrid_F);
+	precisionChange(shifted_fUField_F, shifted_fUField);
+	std::cout << "shifted Changed to single precision Gauge field." << std::endl;
+	std::cout << GridLogMessage << WilsonLoops<PeriodicGimplF>::avgPlaquette(shifted_fUField_F) << std::endl;
 
 //	MobiusFermionD expandedDMobius(expandedUmu, *eg.fFGrid, *eg.fFrbGrid, *eg.fUGrid, *eg.fUrbGrid, fD_mass, M5, b, c);
 //	expandedDMobius.StencilOdd.zero_comm_recv_buffers();
@@ -165,13 +184,17 @@ int main(int argc, char** argv) {
 
 	MobiusFermionF fDF(fUField_F, *eg.fFGrid_F, *eg.fFrbGrid_F, *eg.fUGrid_F, *eg.fUrbGrid_F, fD_mass, M5, b, c);
 	fDF.ZeroCounters();
+	MobiusFermionF shifted_fDF(shifted_fUField_F, *eg.fFGrid_F, *eg.fFrbGrid_F, *eg.fUGrid_F, *eg.fUrbGrid_F, fD_mass, M5, b, c);
+	shifted_fDF.ZeroCounters();
 	
 	GridStopWatch CGTimer;
 	GridStopWatch MSPCGTimer;
 
 	SchurDiagMooeeOperator<MobiusFermionD, LatticeFermionD> HermOpEO(DMobius);
+	SchurDiagMooeeOperator<MobiusFermionD, LatticeFermionD> shifted_HermOpEO(shifted_DMobius);
 //	SchurDiagMooeeOperator<MobiusFermionD, LatticeFermionD> expandedHermOpEO(expandedDMobius);
 	SchurDiagMooeeOperator<MobiusFermionF, LatticeFermionF> fHermF(fDF);
+	SchurDiagMooeeOperator<MobiusFermionF, LatticeFermionF> shifted_fHermF(shifted_fDF);
 //	ConjugateGradient<LatticeFermion> CG(1.0e-8, 30000, 0);// switch off the assert
 
 	LatticeFermionD Mdag_src_o(eg.cFrbGrid);
@@ -183,6 +206,14 @@ int main(int argc, char** argv) {
 	pickCheckerboard(Odd, cXD, src);
 	LatticeFermionD cYD(eg.cFrbGrid);
 	LatticeFermionD ydd(eg.cFrbGrid);
+	
+	LatticeFermionD shifted_cXD(eg.cFrbGrid);
+	pickCheckerboard(Odd, cXD, src);
+	LatticeFermionD shifted_cYD(eg.cFrbGrid);
+	shifted_cXD.checkerboard = Odd;
+	shifted_cYD.checkerboard = Odd;
+
+	shift_ff(cXD, shifted_cXD, true);
 
 	cYD.checkerboard = Odd;
 	cYD = zero;
@@ -197,12 +228,19 @@ int main(int argc, char** argv) {
 	fXF.checkerboard = Odd;
 	fYF.checkerboard = Odd;
 
-	expand_fermion_D2F(eg, cXD, fXF);
+	printf("Right before fermion expansion with qlat.\n");
+	
+	expand_fermion_D2F_qlat(eg, cXD, fXF);
+	zero_boundary_fermion_inner(eg, fXF);
 //	precisionChange(fXF, fXD);
 
-	if(UGrid->ThisRank() != 0) cXD = zero;
+//	if(UGrid->ThisRank() != 0) cXD = zero;
 	HermOpEO.Op(cXD, cYD);
 	HermOpEO.AdjOp(cYD, cXD);
+
+	shifted_HermOpEO.Op(shifted_cXD, shifted_cYD);
+	shifted_HermOpEO.AdjOp(shifted_cYD, shifted_cXD);
+	shift_ff(shifted_cXD, shifted_cYD, false);
 
 //	expandedDMobius.ZeroCounters();
 //	WilsonFermion5DStatic::dirichlet = true;
@@ -217,9 +255,10 @@ int main(int argc, char** argv) {
 //	if(UGrid->ThisRank() != 0) ydd = zero;
 
 //	std::cout << GridLogMessage << "|cYD - cXD|**2 : " << local_norm_sqr(cXD) << "\t" << local_norm_sqr(cYD) << std::endl;
-	if(UGrid->IsBoss()){
+//	if(UGrid->IsBoss()){
 		printf("|cXD|**2 = %20.16e, |cYD|**2 = %20.16e\n", local_norm_sqr(cXD), local_norm_sqr(cYD));
-	}
+//		printf("|cXD|**2 = %20.16e, |cYD|**2 = %20.16e, |shifted_cYD|**2 = %20.16e\n", norm2(cXD), norm2(cYD), norm2(shifted_cYD));
+//	}
 
 //	local_conjugate_gradient_MdagM_variant(eg, expandedHermOpEO, xd, yd, 20);
 
@@ -228,16 +267,21 @@ int main(int argc, char** argv) {
 //	CGTimer.Stop();
 //	std::cout << GridLogMessage << "Total CG time : " << CGTimer.Elapsed() << std::endl;
 
-	int local_iter = 12000;
+	cYD = zero;
+
+	int local_iter = 6;
 	RealD local_e  = 0.;
 	std::cout << GridLogMessage << "MSPCG local iteration : " << local_iter << std::endl;
 	std::cout << GridLogMessage << "MSPCG local mass      : " << fD_mass << std::endl;
 	std::cout << GridLogMessage << "MSPCG local e         : " << local_e << std::endl;
 	std::cout << GridLogMessage << "MSPCG local padding   : [" << padding[0] << " " << padding[1] << " " << padding[2] << " " << padding[3] << "]"<< std::endl;
+	std::cout << GridLogMessage << "MSPCG inner padding   : [" << inner_padding[0] << " " << inner_padding[1] << " " << inner_padding[2] << " " << inner_padding[3] << "]"<< std::endl;
 	
 	MSPCGTimer.Start();
 //	MSP_conjugate_gradient(eg, HermOpEO, expandedHermOpEO, Mdag_src_o, y, 1e-7, local_iter, 50000, local_e);
 	MSPCG_half(eg, HermOpEO, fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
+//	MSPCG_shift(eg, HermOpEO, fHermF, shifted_HermOpEO, shifted_fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
+//	MSPCG_pad(eg, HermOpEO, fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
 //	DD_CG(eg, HermOpEO, expandedHermOpEO, Mdag_src_o, y, 1e-7, local_iter, 50000);
 	MSPCGTimer.Stop();
 	std::cout << GridLogMessage << "Total MSPCG time : " << MSPCGTimer.Elapsed() << std::endl;
