@@ -228,7 +228,7 @@ int main(int argc, char** argv) {
 //	CGTimer.Stop();
 //	std::cout << GridLogMessage << "Total CG time : " << CGTimer.Elapsed() << std::endl;
 
-	int local_iter = 12000;
+	int local_iter = 6;
 	RealD local_e  = 0.;
 	std::cout << GridLogMessage << "MSPCG local iteration : " << local_iter << std::endl;
 	std::cout << GridLogMessage << "MSPCG local mass      : " << fD_mass << std::endl;
