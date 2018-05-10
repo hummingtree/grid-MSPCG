@@ -61,6 +61,7 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 
 	RealD rk2 = local_norm_sqr(r);
 	RealD Mpk2, MdagMpk2, alpha, beta, rkp12;
+	RealD Mpk2_imag;
 	RealD tgt_r2 = rk2 * percent * percent;
 
     if( eg.cUGrid->IsBoss() ){
@@ -71,13 +72,16 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 //	WilsonFermion5DStatic::dirichlet = true;
 
 	for(int local_loop_count = 0; local_loop_count < iterations; local_loop_count++){
+		{
+		TIMER("local_dslash");
 		D.Op(p, mp);
         D.AdjOp(mp, mmp);
 		mmp = mmp + e * p;
-
+		}
 		zero_boundary_fermion(eg, mmp);
 //		zero_boundary_fermion(eg, p); // not necessary?
         Mpk2 = std::real(local_inner_product(p, mmp));
+        Mpk2_imag = std::imag(local_inner_product(p, mmp));
         MdagMpk2 = local_norm_sqr(mmp); // Dag yes, (Mdag * M * p_k, Mdag * M * p_k)
 
         alpha = rk2 / Mpk2; 
@@ -96,8 +100,8 @@ int local_conjugate_gradient_MdagM(ExpandGrid& eg, LinearOperatorBase<F> &D, con
 			zero_boundary_fermion(eg, sol);
             RealD sol2 = local_norm_sqr(sol);
             if( eg.cUGrid->IsBoss() ){
-                printf("local_CG_MdagM: l.i. #%04d on NODE #%04d: r2 = %8.4e psi2 = %8.4e alpha = %8.4e beta = %8.4e Mpk2 = %8.4e \n",
-                        local_loop_count, src._grid->ThisRank(), rk2, sol2, alpha, beta, Mpk2);
+                printf("local_CG_MdagM: l.i. #%04d on NODE #%04d: r2 = %8.4e psi2 = %8.4e alpha = %8.4e beta = %8.4e Mpk2 = %8.4e imag = %+8.4e \n",
+                        local_loop_count, src._grid->ThisRank(), rk2, sol2, alpha, beta, Mpk2, Mpk2_imag);
             }
         }
 
@@ -136,6 +140,7 @@ int local_CG_pad(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol,
 
 	RealD rk2 = local_norm_sqr(r);
 	RealD Mpk2, MdagMpk2, alpha, beta, rkp12;
+	RealD Mpk2_imag;
 	RealD tgt_r2 = rk2 * percent * percent;
 
     if( eg.cUGrid->IsBoss() ){
@@ -153,6 +158,7 @@ int local_CG_pad(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol,
 		zero_boundary_fermion_inner(eg, mmp);
 //		zero_boundary_fermion(eg, p); // not necessary?
         Mpk2 = std::real(local_inner_product(p, mmp));
+        Mpk2_imag = std::imag(local_inner_product(p, mmp));
         MdagMpk2 = local_norm_sqr(mmp); // Dag yes, (Mdag * M * p_k, Mdag * M * p_k)
 
         alpha = rk2 / Mpk2; 
@@ -171,8 +177,8 @@ int local_CG_pad(ExpandGrid& eg, LinearOperatorBase<F> &D, const F &src, F &sol,
 			zero_boundary_fermion_inner(eg, sol);
             RealD sol2 = local_norm_sqr(sol);
             if( eg.cUGrid->IsBoss() ){
-                printf("local_CG_MdagM: l.i. #%04d on NODE #%04d: r2 = %8.4e psi2 = %8.4e alpha = %8.4e beta = %8.4e Mpk2 = %8.4e \n",
-                        local_loop_count, src._grid->ThisRank(), rk2, sol2, alpha, beta, Mpk2);
+                printf("local_CG_MdagM: l.i. #%04d on NODE #%04d: r2 = %8.4e psi2 = %8.4e alpha = %8.4e beta = %8.4e Mpk2 = %8.4e imag = %8.4e \n",
+                        local_loop_count, src._grid->ThisRank(), rk2, sol2, alpha, beta, Mpk2, Mpk2_imag);
             }
         }
 
@@ -408,8 +414,11 @@ int MSPCG_half(ExpandGrid& eg, LinearOperatorBase<G>& D, LinearOperatorBase<F>& 
 
 		rkzk = std::real(innerProduct(r, z));
 
+		{
+		TIMER("global_dslash")
 		D.Op(p, mp);
 		D.AdjOp(mp, mmp);
+		}
 		pkApk = std::real(innerProduct(p, mmp));
 		alpha = rkzk / pkApk; // alpha_k
 
@@ -486,7 +495,7 @@ int MSPCG_shift(ExpandGrid& eg, LinearOperatorBase<G>& D, LinearOperatorBase<F>&
 								RealD percent, int f_iter, size_t max_iter = 50000, RealD e = 0.)
 {
 
-	size_t shoushuliangduan = 10000;
+	size_t shoushuliangduan = 500;
 
 	G shifted_src(src);
 	G shifted_sol(sol);

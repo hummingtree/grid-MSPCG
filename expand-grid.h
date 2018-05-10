@@ -428,9 +428,10 @@ void expand_gauge_field_qlat(ExpandGrid& eg, const Lattice<vobj>& in, Lattice<vo
 			}
 		}
 	}
-
-	printf("count = %d\n", count);
-
+	
+	if(in._grid->IsBoss()){
+		printf("A total of %d boundary gauge links are zeroed.\n", count);
+	}
 	memcpy(out_lex.data(), f.field.data(), f.field.size()*sizeof(sobj));
 	vectorizeFromLexOrdArray(out_lex, out);
 
