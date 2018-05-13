@@ -78,10 +78,47 @@ int main(int argc, char** argv) {
 	printf("Node #%03d(grid): %02dx%02dx%02dx%02d ; #%03d(qlat): %02dx%02dx%02dx%02d\n", UGrid->ThisRank(), 
 				UGrid->ThisProcessorCoor()[0], UGrid->ThisProcessorCoor()[1], UGrid->ThisProcessorCoor()[2], UGrid->ThisProcessorCoor()[3], 
 				qlat::get_id_node(), qlat::get_coor_node()[0], qlat::get_coor_node()[1], qlat::get_coor_node()[2], qlat::get_coor_node()[3]);
+	
+	std::array<int, 4> padding_left = {4,4,4,4};
+	std::array<int, 4> padding_right = {4,4,4,4};
+	std::array<int, 4> inner_padding_left = {2,2,2,2};
+	std::array<int, 4> inner_padding_right = {2,2,2,2};
 
-	std::array<int, 4> padding = {2,2,2,2};
-	std::array<int, 4> inner_padding = {0,0,0,0};
-	ExpandGrid eg; eg.init(UGrid, padding, inner_padding, Ls);
+// padding test
+/*	
+	ExpandGrid eg;
+	if(UGrid->ThisProcessorCoor()[1]%2==0){
+		std::array<int, 4> padding_left = {2,2,2,2};
+		std::array<int, 4> padding_right = {2,14,2,2};
+		std::array<int, 4> inner_padding_left = {0,0,0,0};
+		std::array<int, 4> inner_padding_right = {0,12,0,0};
+	std::cout << GridLogMessage << "MSPCG outer padding left  : [" 	<< padding_left[0] << " " 
+																	<< padding_left[1] << " " 
+																	<< padding_left[2] << " " 
+																	<< padding_left[3] << "]" << std::endl;
+	std::cout << GridLogMessage << "MSPCG outer padding right : [" 	<< padding_right[0] << " " 
+																	<< padding_right[1] << " " 
+																	<< padding_right[2] << " " 
+																	<< padding_right[3] << "]" << std::endl;
+	std::cout << GridLogMessage << "MSPCG inner padding left  : [" 	<< inner_padding_left[0] << " " 
+																	<< inner_padding_left[1] << " " 
+																	<< inner_padding_left[2] << " " 
+																	<< inner_padding_left[3] << "]" << std::endl;																
+	std::cout << GridLogMessage << "MSPCG inner padding right : [" 	<< inner_padding_right[0] << " " 
+																	<< inner_padding_right[1] << " " 
+																	<< inner_padding_right[2] << " " 
+																	<< inner_padding_right[3] << "]" << std::endl;
+		eg.init(UGrid, padding_left, padding_right, inner_padding_left, inner_padding_right, Ls);
+	}else{
+		std::array<int, 4> padding_left = {2,14,2,2};
+		std::array<int, 4> padding_right = {2,2,2,2};
+		std::array<int, 4> inner_padding_left = {0,12,0,0};
+		std::array<int, 4> inner_padding_right = {0,0,0,0};
+		eg.init(UGrid, padding_left, padding_right, inner_padding_left, inner_padding_right, Ls);
+	}
+*/
+
+	ExpandGrid eg; eg.init(UGrid, padding_left, padding_right, inner_padding_left, inner_padding_right, Ls);
 	
 	std::vector<int> seeds4({1, 2, 3, 4});
 	std::vector<int> seeds5({5, 6, 7, 8});
@@ -195,7 +232,7 @@ int main(int argc, char** argv) {
 //	SchurDiagMooeeOperator<MobiusFermionD, LatticeFermionD> expandedHermOpEO(expandedDMobius);
 	SchurDiagMooeeOperator<MobiusFermionF, LatticeFermionF> fHermF(fDF);
 	SchurDiagMooeeOperator<MobiusFermionF, LatticeFermionF> shifted_fHermF(shifted_fDF);
-//	ConjugateGradient<LatticeFermion> CG(1.0e-8, 30000, 0);// switch off the assert
+	ConjugateGradient<LatticeFermion> CG(1e-10, 30000, 0);// switch off the assert
 
 	LatticeFermionD Mdag_src_o(eg.cFrbGrid);
 	HermOpEO.AdjOp(src_o, Mdag_src_o);
@@ -235,7 +272,7 @@ int main(int argc, char** argv) {
 	zero_boundary_fermion_inner(eg, fXF);
 //	precisionChange(fXF, fXD);
 
-//	if(UGrid->ThisRank() != 0) cXD = zero;
+	if(UGrid->ThisRank() != 0) cXD = zero;
 	HermOpEO.Op(cXD, cYD);
 	HermOpEO.AdjOp(cYD, cXD);
 
@@ -252,13 +289,16 @@ int main(int argc, char** argv) {
 //	precisionChange(fXD, fXF);
 	shrink_fermion_F2D(eg, fXF, cYD);	
 	
+	zero_boundary_fermion_inner(eg, fXF);
+	
 //	if(UGrid->ThisRank() != 0) x = zero;
 //	if(UGrid->ThisRank() != 0) ydd = zero;
 
 //	std::cout << GridLogMessage << "|cYD - cXD|**2 : " << local_norm_sqr(cXD) << "\t" << local_norm_sqr(cYD) << std::endl;
 //	if(UGrid->IsBoss()){
-//		printf("|cXD|**2 = %20.16e, |cYD|**2 = %20.16e\n", local_norm_sqr(cXD), local_norm_sqr(cYD));
-		printf("|cXD|**2 = %20.16e, |cYD|**2 = %20.16e, |shifted_cYD|**2 = %20.16e\n", norm2(cXD), norm2(cYD), norm2(shifted_cYD));
+		printf("local:  |cXD|**2 = %20.16e, |cYD|**2 = %20.16e\n", local_norm_sqr(cXD), local_norm_sqr(cYD));
+		printf("local:  |fXF|**2 = %20.16e, |fXF|**2 = %20.16e, ON node %04d\n", local_norm_sqr(fXF), local_norm_sqr(fXF), UGrid->ThisRank());
+		printf("global: |cXD|**2 = %20.16e, |cYD|**2 = %20.16e, |shifted_cYD|**2 = %20.16e\n", norm2(cXD), norm2(cYD), norm2(shifted_cYD));
 //	}
 
 //	local_conjugate_gradient_MdagM_variant(eg, expandedHermOpEO, xd, yd, 20);
@@ -272,18 +312,32 @@ int main(int argc, char** argv) {
 
 	int local_iter = 6;
 	RealD local_e  = 0.;
-	std::cout << GridLogMessage << "MSPCG local iteration : " << local_iter << std::endl;
-	std::cout << GridLogMessage << "MSPCG local mass      : " << fD_mass << std::endl;
-	std::cout << GridLogMessage << "MSPCG local e         : " << local_e << std::endl;
-	std::cout << GridLogMessage << "MSPCG local padding   : [" << padding[0] << " " << padding[1] << " " << padding[2] << " " << padding[3] << "]"<< std::endl;
-	std::cout << GridLogMessage << "MSPCG inner padding   : [" << inner_padding[0] << " " << inner_padding[1] << " " << inner_padding[2] << " " << inner_padding[3] << "]"<< std::endl;
+	std::cout << GridLogMessage << "MSPCG local iteration     : " << local_iter << std::endl;
+	std::cout << GridLogMessage << "MSPCG local mass          : " << fD_mass << std::endl;
+	std::cout << GridLogMessage << "MSPCG local e             : " << local_e << std::endl;
+	std::cout << GridLogMessage << "MSPCG outer padding left  : [" 	<< padding_left[0] << " " 
+																	<< padding_left[1] << " " 
+																	<< padding_left[2] << " " 
+																	<< padding_left[3] << "]" << std::endl;
+	std::cout << GridLogMessage << "MSPCG outer padding right : [" 	<< padding_right[0] << " " 
+																	<< padding_right[1] << " " 
+																	<< padding_right[2] << " " 
+																	<< padding_right[3] << "]" << std::endl;
+	std::cout << GridLogMessage << "MSPCG inner padding left  : [" 	<< inner_padding_left[0] << " " 
+																	<< inner_padding_left[1] << " " 
+																	<< inner_padding_left[2] << " " 
+																	<< inner_padding_left[3] << "]" << std::endl;																
+	std::cout << GridLogMessage << "MSPCG inner padding right : [" 	<< inner_padding_right[0] << " " 
+																	<< inner_padding_right[1] << " " 
+																	<< inner_padding_right[2] << " " 
+																	<< inner_padding_right[3] << "]" << std::endl;
 	
 	MSPCGTimer.Start();
 //	MSP_conjugate_gradient(eg, HermOpEO, expandedHermOpEO, Mdag_src_o, y, 1e-7, local_iter, 50000, local_e);
 //	MSPCG_half(eg, HermOpEO, fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
-	MSPCG_half(eg, HermOpEO, fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
+//	MSPCG_half(eg, HermOpEO, fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
 //	MSPCG_shift(eg, HermOpEO, fHermF, shifted_HermOpEO, shifted_fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
-//	MSPCG_pad(eg, HermOpEO, fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
+	MSPCG_pad(eg, HermOpEO, fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
 //	DD_CG(eg, HermOpEO, expandedHermOpEO, Mdag_src_o, y, 1e-7, local_iter, 50000);
 	MSPCGTimer.Stop();
 	std::cout << GridLogMessage << "Total MSPCG time : " << MSPCGTimer.Elapsed() << std::endl;

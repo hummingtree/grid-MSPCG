@@ -57,8 +57,10 @@ public:
 	GridRedBlackCartesian* fUrbGrid_F;
 	GridRedBlackCartesian* fFrbGrid_F;
 	
-	std::array<int, 4> expansion;
-	std::array<int, 4> inner_expansion;
+	std::array<int, 4> expansion_left;
+	std::array<int, 4> expansion_right;
+	std::array<int, 4> inner_expansion_left;
+	std::array<int, 4> inner_expansion_right;
 
 	std::vector<std::vector<int>> fFrbGrid_in_list;
 	std::vector<std::vector<int>> cFrbGrid_in_list;
@@ -72,10 +74,18 @@ public:
 	
 	std::vector<std::vector<int>> fFrbGrid_inner_out_list;
 
-	inline void init(GridCartesian* _cUGrid, std::array<int, 4>& _expansion, std::array<int, 4>& _inner_expansion, int Ls){
+	inline void init(	GridCartesian* _cUGrid, 
+						std::array<int, 4>& _expansion_left, 
+						std::array<int, 4>& _expansion_right,
+						std::array<int, 4>& _inner_expansion_left,
+						std::array<int, 4>& _inner_expansion_right, 
+						int Ls
+					){
 
-		expansion = _expansion;		
-		inner_expansion = _inner_expansion;		
+		expansion_left = _expansion_left;		
+		expansion_right = _expansion_right;		
+		inner_expansion_left = _inner_expansion_left;		
+		inner_expansion_right = _inner_expansion_right;		
 		cUGrid = _cUGrid;
 		cUrbGrid = SpaceTimeGrid::makeFourDimRedBlackGrid(cUGrid);
 		cFGrid = SpaceTimeGrid::makeFiveDimGrid(Ls, cUGrid);
@@ -88,8 +98,9 @@ public:
     	
 		std::vector<int> expanded_latt_size = latt_size;
     	for(int i = 0; i < 4; i++){
-			expanded_latt_size[i] = latt_size[i]/mpi_layout[i] + 2*expansion[i];
+			expanded_latt_size[i] = latt_size[i]/mpi_layout[i] + expansion_left[i] + expansion_right[i];
 //   		expanded_latt_size[i] = latt_size[i] + 2*expansion*mpi_layout[i];
+			assert(latt_size[i] > expanded_latt_size[i]); // qlat does NOT support local volume larger than global volume
 		}
 
 		fUGrid = new GridCartesian(expanded_latt_size, simd_layout, mpi_layout_no_comm, *cUGrid);
@@ -112,15 +123,17 @@ public:
 
 		fFrbGrid_inner_out_list.resize(0);
 
+		size_t count_inner = 0;
+
 // fermion copy list. Maybe by directly get index for memory we will get a better performance?
 		for(int index = 0; index < fFrbGrid->lSites(); index++){
 			std::vector<int> lcoor_out(5), lcoor_in(5), full_lcoor_out(5), full_lcoor_in(5);
 			fFrbGrid->LocalIndexToLocalCoor(index, lcoor_out);
 
 			lcoor_in[0] = lcoor_out[0]; // s: Ls
-			lcoor_in[1] = lcoor_out[1] - expansion[0]/2; // x is the _checker_dim
+			lcoor_in[1] = lcoor_out[1] - expansion_left[0]/2; // x is the _checker_dim
 			for(int d = 2; d < 5; d++){
-				lcoor_in[d] = lcoor_out[d] - expansion[d-1];
+				lcoor_in[d] = lcoor_out[d] - expansion_left[d-1];
 			}
 
 			for(int cb = 0; cb < 2; cb++){
@@ -156,16 +169,19 @@ public:
 				}
 				
 				
-				if( lcoor_in[1] < -inner_expansion[0]/2 or lcoor_in[1] >= cFrbGrid->_ldimensions[1]+inner_expansion[0]/2 or 
-					lcoor_in[2] < -inner_expansion[1] or lcoor_in[2] >= cFrbGrid->_ldimensions[2]+inner_expansion[1] or 
-					lcoor_in[3] < -inner_expansion[2] or lcoor_in[3] >= cFrbGrid->_ldimensions[3]+inner_expansion[2] or 
-					lcoor_in[4] < -inner_expansion[3] or lcoor_in[4] >= cFrbGrid->_ldimensions[4]+inner_expansion[3]){
+				if( lcoor_in[1] < -inner_expansion_left[0]/2 or lcoor_in[1] >= cFrbGrid->_ldimensions[1]+inner_expansion_right[0]/2 or 
+					lcoor_in[2] < -inner_expansion_left[1] or lcoor_in[2] >= cFrbGrid->_ldimensions[2]+inner_expansion_right[1] or 
+					lcoor_in[3] < -inner_expansion_left[2] or lcoor_in[3] >= cFrbGrid->_ldimensions[3]+inner_expansion_right[2] or 
+					lcoor_in[4] < -inner_expansion_left[3] or lcoor_in[4] >= cFrbGrid->_ldimensions[4]+inner_expansion_right[3]){
 					
 					fFrbGrid_inner_out_list.push_back(full_lcoor_out);
+					count_inner++;
 				}
 
 			}
 		}
+
+		printf("count_inner = %d\n", count_inner);
 
 // gauge copy list.
 		fUGrid_in_list.resize(0);
@@ -175,7 +191,7 @@ public:
 			fUGrid->LocalIndexToLocalCoor(index, lcoor_out);
 
 			for(int d = 0; d < 4; d++){
-				lcoor_in[d] = lcoor_out[d] - expansion[d];
+				lcoor_in[d] = lcoor_out[d] - expansion_left[d];
 			}
 
 			if( lcoor_in[0] >= 0 and lcoor_in[0] < cUGrid->_ldimensions[0] and
@@ -281,8 +297,9 @@ void expand_fermion_D2F_qlat(ExpandGrid& eg, const Lattice<double_type>& in, Lat
 	qlat::Coordinate global_size(in._grid->_gdimensions[1], in._grid->_gdimensions[2], in._grid->_gdimensions[3], in._grid->_gdimensions[4]);
 	qlat::Geometry geo; geo.init(global_size, in._grid->_gdimensions[0]); // multiplicity = in._grid->_gdimensions[0]
 
-	qlat::Coordinate expanse(eg.expansion[0]/2, eg.expansion[1], eg.expansion[2], eg.expansion[3]); // x direction is the checkerboard dimension so the /2.
-	geo.resize(expanse, expanse);
+	qlat::Coordinate e_left(eg.expansion_left[0]/2, eg.expansion_left[1], eg.expansion_left[2], eg.expansion_left[3]); // x direction is the checkerboard dimension so the /2.
+	qlat::Coordinate e_right(eg.expansion_right[0]/2, eg.expansion_right[1], eg.expansion_right[2], eg.expansion_right[3]); // x direction is the checkerboard dimension so the /2.
+	geo.resize(e_left, e_right);
 
 	qlat::Field<Fsobj> f; f.init(geo);
 	assert(f.field.size() == out._grid->lSites()); 
@@ -327,8 +344,9 @@ void expand_fermion_qlat(ExpandGrid& eg, const Lattice<sc>& in, Lattice<sc>& out
 	qlat::Coordinate global_size(in._grid->_gdimensions[1], in._grid->_gdimensions[2], in._grid->_gdimensions[3], in._grid->_gdimensions[4]);
 	qlat::Geometry geo; geo.init(global_size, in._grid->_gdimensions[0]); // multiplicity = in._grid->_gdimensions[0]
 
-	qlat::Coordinate expanse(eg.expansion[0]/2, eg.expansion[1], eg.expansion[2], eg.expansion[3]); // x direction is the checkerboard dimension so the /2.
-	geo.resize(expanse, expanse);
+	qlat::Coordinate e_left(eg.expansion_left[0]/2, eg.expansion_left[1], eg.expansion_left[2], eg.expansion_left[3]); // x direction is the checkerboard dimension so the /2.
+	qlat::Coordinate e_right(eg.expansion_right[0]/2, eg.expansion_right[1], eg.expansion_right[2], eg.expansion_right[3]); // x direction is the checkerboard dimension so the /2.
+	geo.resize(e_left, e_right);
 
 	qlat::Field<sobj> f; f.init(geo);
 	assert(f.field.size() == out._grid->lSites()); 
@@ -404,9 +422,10 @@ void expand_gauge_field_qlat(ExpandGrid& eg, const Lattice<vobj>& in, Lattice<vo
 
 	qlat::Coordinate global_size(in._grid->_gdimensions[0], in._grid->_gdimensions[1], in._grid->_gdimensions[2], in._grid->_gdimensions[3]);
 	qlat::Geometry geo; geo.init(global_size, 1); // packing gauge links in four directions together, therefore multiplicity = 1
-
-	qlat::Coordinate expanse(eg.expansion[0], eg.expansion[1], eg.expansion[2], eg.expansion[3]);
-	geo.resize(expanse, expanse);
+	
+	qlat::Coordinate e_left(eg.expansion_left[0], eg.expansion_left[1], eg.expansion_left[2], eg.expansion_left[3]);
+	qlat::Coordinate e_right(eg.expansion_right[0], eg.expansion_right[1], eg.expansion_right[2], eg.expansion_right[3]);
+	geo.resize(e_left, e_right);
 
 	qlat::Field<sobj> f; f.init(geo);
 	assert(f.field.size()*1 == out._grid->lSites()); // 1 for multiplicity
@@ -426,6 +445,22 @@ void expand_gauge_field_qlat(ExpandGrid& eg, const Lattice<vobj>& in, Lattice<vo
 				count++;
 				memset(ptr+u_size*mu, 0, u_size);
 			}
+//			// TODO: !!! for debug ONLY
+//			
+//			if( x[mu] == geo.node_site_expanded[mu]-geo.expansion_left[mu]-2 ) {
+//				count++;
+//				memset(ptr+u_size*mu, 0, u_size);
+//			}
+//			
+//			if( x[mu] == -2 ) {
+//				count++;
+//				memset(ptr+u_size*mu, 0, u_size);
+//			}
+//			
+//			if( x[mu] == -1 ) {
+//				count++;
+//				memset(ptr+u_size*mu, 0, u_size);
+//			}
 		}
 	}
 	
