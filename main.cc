@@ -63,7 +63,16 @@ int main(int argc, char** argv) {
 
 	GridLogIterative.Active(1);
 
-	const int Ls = 12;
+	const int Ls = 10;
+
+	RealD mass = 0.000661;
+//	RealD mass = 0.0001;
+	RealD fD_mass = mass;
+	RealD M5 = 1.8;
+	RealD b = 1.5;
+	RealD c = 0.5;
+//	RealD b = 22./12.;
+//	RealD c = 10./12.;
 
 	GridCartesian* UGrid = SpaceTimeGrid::makeFourDimGrid(GridDefaultLatt(), GridDefaultSimd(Nd, vComplexD::Nsimd()), GridDefaultMpi());
 //	GridRedBlackCartesian* UrbGrid = SpaceTimeGrid::makeFourDimRedBlackGrid(UGrid);
@@ -79,10 +88,10 @@ int main(int argc, char** argv) {
 				UGrid->ThisProcessorCoor()[0], UGrid->ThisProcessorCoor()[1], UGrid->ThisProcessorCoor()[2], UGrid->ThisProcessorCoor()[3], 
 				qlat::get_id_node(), qlat::get_coor_node()[0], qlat::get_coor_node()[1], qlat::get_coor_node()[2], qlat::get_coor_node()[3]);
 	
-	std::array<int, 4> padding_left = {4,4,4,4};
-	std::array<int, 4> padding_right = {4,4,4,4};
-	std::array<int, 4> inner_padding_left = {2,2,2,2};
-	std::array<int, 4> inner_padding_right = {2,2,2,2};
+	std::array<int, 4> padding_left = {2,2,2,2};
+	std::array<int, 4> padding_right = {2,2,2,2};
+	std::array<int, 4> inner_padding_left = {0,0,0,0};
+	std::array<int, 4> inner_padding_right = {0,0,0,0};
 
 // padding test
 /*	
@@ -128,7 +137,8 @@ int main(int argc, char** argv) {
 	RNG4.SeedFixedIntegers(seeds4);
 
 	LatticeFermion src(eg.cFGrid);
-	random(RNG5, src);
+//	random(RNG5, src);
+	gaussian(RNG5, src);
 	LatticeFermion result(eg.cFGrid);
 	result = zero;
 	LatticeGaugeField Umu(UGrid);
@@ -153,8 +163,8 @@ int main(int argc, char** argv) {
 	int orthosz =latt_size[orthodir];
 
 	FieldMetaData header;
-	std::string file("/global/homes/j/jiquntu/configurations/32x64x12ID_b1.75_mh0.045_ml0.0001/configurations/ckpoint_lat.160");
-//	std::string file("/global/homes/j/jiquntu/configurations/64x128x10I_mh0.02659_ml0.000661/ckpoint_lat.2850");
+//	std::string file("/global/homes/j/jiquntu/configurations/32x64x12ID_b1.75_mh0.045_ml0.0001/configurations/ckpoint_lat.160");
+	std::string file("/global/homes/j/jiquntu/configurations/64x128x10I_mh0.02659_ml0.000661/ckpoint_lat.2850");
 	NerscIO::readConfiguration(Umu, header, file);
 	shifted_Umu = Cshift(        Umu, 0, UGrid->_ldimensions[0]/2);
 	shifted_Umu = Cshift(shifted_Umu, 1, UGrid->_ldimensions[1]/2);
@@ -165,13 +175,6 @@ int main(int argc, char** argv) {
 
 	std::cout << GridLogMessage << "Lattice dimensions: " << GridDefaultLatt() << "   Ls: " << Ls << std::endl;
 
-	RealD mass = 0.0001;
-	RealD fD_mass = mass;
-	RealD M5 = 1.8;
-//	RealD b = 1.5;
-//	RealD c = 0.5;
-	RealD b = 22./12.;
-	RealD c = 10./12.;
 	MobiusFermionR DMobius(Umu, *eg.cFGrid, *eg.cFrbGrid, *eg.cUGrid, *eg.cUrbGrid, mass, M5, b, c);
 	DMobius.ZeroCounters();
 
@@ -303,10 +306,10 @@ int main(int argc, char** argv) {
 
 //	local_conjugate_gradient_MdagM_variant(eg, expandedHermOpEO, xd, yd, 20);
 
-//	CGTimer.Start();
-//	CG(HermOpEO, Mdag_src_o, result_o);
-//	CGTimer.Stop();
-//	std::cout << GridLogMessage << "Total CG time : " << CGTimer.Elapsed() << std::endl;
+	CGTimer.Start();
+	CG(HermOpEO, Mdag_src_o, result_o);
+	CGTimer.Stop();
+	std::cout << GridLogMessage << "Total CG time : " << CGTimer.Elapsed() << std::endl;
 
 	cYD = zero;
 
@@ -334,10 +337,10 @@ int main(int argc, char** argv) {
 	
 	MSPCGTimer.Start();
 //	MSP_conjugate_gradient(eg, HermOpEO, expandedHermOpEO, Mdag_src_o, y, 1e-7, local_iter, 50000, local_e);
-//	MSPCG_half(eg, HermOpEO, fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
-//	MSPCG_half(eg, HermOpEO, fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
+//	MSPCG_half_v2(eg, HermOpEO, fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
+	MSPCG_half(eg, HermOpEO, fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
 //	MSPCG_shift(eg, HermOpEO, fHermF, shifted_HermOpEO, shifted_fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
-	MSPCG_pad(eg, HermOpEO, fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
+//	MSPCG_pad(eg, HermOpEO, fHermF, Mdag_src_o, cYD, 1e-10, local_iter, 50000, local_e);
 //	DD_CG(eg, HermOpEO, expandedHermOpEO, Mdag_src_o, y, 1e-7, local_iter, 50000);
 	MSPCGTimer.Stop();
 	std::cout << GridLogMessage << "Total MSPCG time : " << MSPCGTimer.Elapsed() << std::endl;

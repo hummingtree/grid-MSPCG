@@ -516,6 +516,141 @@ int MSPCG_shift(ExpandGrid& eg, LinearOperatorBase<G>& D, LinearOperatorBase<F>&
 }
 
 template<class F, class G>
+int MSPCG_half_v2(ExpandGrid& eg, LinearOperatorBase<G>& D, LinearOperatorBase<F>& fD, const G& src, G& sol, 
+								RealD percent, int f_iter, size_t max_iter = 50000, RealD e = 0.)
+{
+
+	RealD alpha, beta, rkzk, pkApk, zkp1rkp1, zkrk;
+	RealD r2, src_sqr, tgt_r2;
+
+	RealD gamma = +0.6;
+
+	if(src._grid->IsBoss()){
+    	printf("MSPCG_half_v2: gamma= %+8.2e\n", gamma);
+	}	
+
+	G p(src);
+	G mp(src);
+	G mmp(src);
+	G r(src);
+	G z(src);
+	
+	G mmp_old(src);
+	G r_cc(src);
+	G z_old(src);
+
+	G f_r(eg.fFrbGrid);
+	G f_z(eg.fFrbGrid);
+	
+	F f_r_F(eg.fFrbGrid_F);
+	F f_z_F(eg.fFrbGrid_F);
+
+	D.Op(sol, mp);
+	D.AdjOp(mp, mmp);
+
+	mmp_old = mmp;
+
+	r = src - mmp;
+	r2 = norm2(r);
+	
+	src_sqr = norm2(src);
+	tgt_r2  = src_sqr * percent * percent;
+
+	if(r2 < tgt_r2){
+		if(not src._grid->ThisRank()){
+			printf("MSP_conjugate_gradient() CONVERGED at iteration 0;\n");
+		}
+		return 0;
+	}
+
+	expand_fermion_D2F(eg, r, f_r_F);
+//	precisionChange(f_r_F, f_r);
+	local_conjugate_gradient_MdagM(eg, fD, f_r_F, f_z_F, f_iter, e); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
+//	precisionChange(f_z, f_z_F);
+	shrink_fermion_F2D(eg, f_z_F, z);
+
+	p = z; // p0 = z0
+
+	for(size_t k = 0; k < max_iter; k++){
+
+		TIMER("MSPCG_iteration");
+
+		rkzk = std::real(innerProduct(r, z));
+
+		{
+		TIMER("global_dslash")
+		D.Op(p, mp);
+		D.AdjOp(mp, mmp);
+		}
+		pkApk = std::real(innerProduct(p, mmp));
+		alpha = rkzk / pkApk; // alpha_k
+
+		sol = sol + alpha * p; // x_k+1 = x_k + alpha * p_k
+		r = r - alpha * mmp; // r_k+1 = r_k - alpha * Ap_k
+   
+		{
+		TIMER("local_CG/padding")
+		
+		if(k>0){
+			r_cc = r - gamma*(mmp - beta*mmp_old);
+			expand_fermion_D2F(eg, r_cc, f_r_F);
+		}else{	
+			expand_fermion_D2F(eg, r, f_r_F);
+		}
+		mmp_old = mmp;
+
+//		expand_fermion_D2F(eg, r, f_r_F);
+//		precisionChange(f_r_F, f_r);
+		local_conjugate_gradient_MdagM(eg, fD, f_r_F, f_z_F, f_iter, e); // z0 = M^-1 * r0 // notations follow https://en.wikipedia.org/wiki/Conjugate_gradient_method
+//		precisionChange(f_z, f_z_F);
+		shrink_fermion_F2D(eg, f_z_F, z);
+		
+		if(k>0){
+			z = z + gamma*z_old;
+		}
+
+		}
+		z_old = z;
+
+//		zkp1rkp1 = std::real(innerProduct(z, r));	
+		zkp1rkp1 = -alpha*std::real(innerProduct(z, mmp));	
+		
+		beta = zkp1rkp1 / rkzk;
+		p = z + beta * p; // p_k+1 = z_k+1 + beta * p_k
+	
+		r2 = norm2(r);
+		RealD z2 = norm2(z);
+		if ( true ){
+		    if(not src._grid->ThisRank()){
+				printf("MSPCG/iter.count/r2/target_r2/%%/target_%%: %05d %8.4e %8.4e %8.4e %8.4e \n", k, r2, tgt_r2, std::sqrt(r2/src_sqr), percent);
+			}
+		}
+
+		// Stopping condition
+		if ( r2 < tgt_r2 ) { 
+		    
+			D.Op(sol, mp);
+		    D.AdjOp(mp, mmp);
+		    r = src - mmp;
+		    r2 = norm2(r);	
+            
+			if(not src._grid->ThisRank()){
+                printf("MSPCG CONVERGED at iteration %05d with true r2 = %8.4e: target r2 = %8.4e\n", k, r2, tgt_r2);
+            }
+			
+			return k;
+
+		}
+
+	}
+    if(not src._grid->ThisRank()){
+        printf("MSPCG has NOT CONVERGED after iteration %05d\n", max_iter);
+    }
+	
+	return -1;
+}
+
+template<class F, class G>
 int MSPCG_pad(ExpandGrid& eg, LinearOperatorBase<G>& D, LinearOperatorBase<F>& fD, const G& src, G& sol, 
 								RealD percent, int f_iter, size_t max_iter = 50000, RealD e = 0.)
 {

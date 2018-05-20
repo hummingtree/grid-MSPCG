@@ -23,5 +23,5 @@ link_directories( "${GRID_DIR}/${GRID_VERSION}/build/lib" )
 
 include_directories( "${GRID_DIR}/${GRID_VERSION}/build/include" "${QLAT_DIR}/include" "${QLAT_DIR}/include/utils" "${QLAT_DIR}/include/eigen3")
 
-add_executable ( knl.x ${SRC} )
-target_link_libraries(knl.x libGrid.a )
+add_executable ( knl_v2.x ${SRC} )
+target_link_libraries(knl_v2.x libGrid.a )
